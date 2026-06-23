@@ -77,7 +77,7 @@ async function loadChoropleth() {
   // Build lookup: region_id → total accident_count
   const lookup = {};
   for (const r of countsRes.results) {
-    lookup[r.region_id] = (lookup[r.region_id] || 0) + r.accident_count;
+    lookup[String(r.region_id)] = (lookup[String(r.region_id)] || 0) + r.accident_count;
   }
   state.choroplethData = lookup;
   const maxCount = Math.max(...Object.values(lookup), 1);
@@ -93,7 +93,7 @@ async function loadChoropleth() {
     },
     {
       style: (feature) => {
-        const count = lookup[feature.properties.ags] || 0;
+        const count = lookup[String(feature.properties.ags)] || 0;
         return {
           fillColor: choroplethColor(count, maxCount),
           fillOpacity: 0.65,
@@ -102,7 +102,7 @@ async function loadChoropleth() {
         };
       },
       onEachFeature: (feature, layer) => {
-        const count = lookup[feature.properties.ags] || 0;
+        const count = lookup[String(feature.properties.ags)] || 0;
         layer.bindTooltip(
           `<strong>${feature.properties.name}</strong><br>${count.toLocaleString('de-DE')} Unfälle`,
           { sticky: true }
@@ -472,7 +472,7 @@ function geolocate() {
     return;
   }
   navigator.geolocation.getCurrentPosition(
-    pos => handlePosition(pos.coords.latitude, pos.coords.longitude),
+    pos => handlePosition(pos.coords.latitude, pos.coords.longitude).catch(console.error),
     () => showApiError('Standort konnte nicht ermittelt werden')
   );
 }
@@ -571,14 +571,13 @@ function checkDangerAlert(yourZone, hotspots) {
     const dist = minDist < 50 ? 'unmittelbar' : `${Math.round(minDist)}m`;
     document.getElementById('dangerAlertText').textContent =
       `⚠ Unfallschwerpunkt ${dist === 'unmittelbar' ? 'an diesem Standort' : 'in ' + dist + ' Entfernung'} (${nearestHotspot.accident_count} Unfälle in 3 Jahren)`;
-    alertEl.classList.remove('hidden'); alertEl.classList.add('show');
-    setTimeout(() => { alertEl.classList.remove('show'); alertEl.classList.add('hidden'); }, 8000);
+    alertEl.classList.add('show');
+    setTimeout(() => alertEl.classList.remove('show'), 8000);
   }
 }
 
 document.getElementById('dangerAlertClose').addEventListener('click', () => {
-  const alert = document.getElementById('dangerAlert');
-  alert.classList.remove('show'); alert.classList.add('hidden');
+  document.getElementById('dangerAlert').classList.remove('show');
 });
 
 // --- Live Tracking ---
@@ -693,6 +692,7 @@ async function analyzeRoute() {
 async function geocode(query) {
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ' Germany')}&format=json&limit=1`;
   const res = await fetch(url, { headers: { 'Accept-Language': 'de' } });
+  if (!res.ok) throw new Error(`Nominatim error ${res.status}`);
   const data = await res.json();
   if (!data.length) return null;
   return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
@@ -792,11 +792,11 @@ function handleRegionClick(ags, name) {
     });
   }
 
-  // Update Q4 if open (earliest year for this district/Gemeinde)
+  // Update Q4 if open (earliest year for this municipality)
   const qa4Body = document.getElementById('qa4');
   if (qa4Body && !qa4Body.classList.contains('hidden')) {
-    apiFetch(`/aggregates/accidents?level=district&aggregate=earliest_year&state=${ags.substring(0, 2)}`).then(res => {
-      document.getElementById('qa4Result').textContent = `${name}\nFrühestes Jahr: ${res.results?.earliest_year ?? '—'}`;
+    apiFetch(`/aggregates/accidents?level=municipality&aggregate=earliest_year&state=${ags.substring(0, 2)}`).then(res => {
+      document.getElementById('qa4Result').textContent = `${name} (${ags})\nFrühestes Jahr: ${res.results?.earliest_year ?? '—'}`;
     });
   }
 }
