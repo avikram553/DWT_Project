@@ -1,12 +1,13 @@
-"""Phase 2 ETL: load German administrative regions from BKG VG250-EW GeoJSON."""
+"""Phase 2 ETL: load German administrative regions from BKG VG250-EW Shapefile."""
 from __future__ import annotations
 
-import json
+import io
 import zipfile
 from typing import Any
 
+import shapefile  # pyshp
 from pyproj import Transformer
-from shapely import from_geojson
+from shapely.geometry import shape as shapely_shape, MultiPolygon
 from shapely.ops import transform
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -21,9 +22,12 @@ from etl.common import (
 
 VG250_URL = (
     "https://daten.gdz.bkg.bund.de/produkte/vg/vg250-ew_ebenen_1231/"
-    "aktuell/vg250-ew_12-31.utm32s.geojson.zip"
+    "aktuell/vg250-ew_12-31.utm32s.shape.ebenen.zip"
 )
 VG250_ZIP = RAW_DATA_DIR / "vg250-ew.geojson.zip"
+
+# Subdirectory inside the zip where shapefiles live
+_ZIP_SUBDIR = "vg250-ew_12-31.utm32s.shape.ebenen/vg250-ew_ebenen_1231"
 
 LEVEL_FILES = [
     ("VG250_LAN", "state"),
@@ -45,11 +49,19 @@ def _reproject_geom(geom):
 
 
 def extract_ags(props: dict[str, Any], level: str) -> str:
-    rs: str = str(props.get("RS") or props.get("RS_0") or "")
+    # Prefer AGS field (already at correct length in Shapefile).
+    # Fall back to ARS[:N] for GeoJSON source which uses RS/RS_0.
+    ags_direct: str = str(props.get("AGS") or props.get("AGS_0") or "").strip()
+    rs: str = str(props.get("ARS") or props.get("RS") or props.get("ARS_0") or props.get("RS_0") or "").strip()
     if level == "state":
-        return rs[:2]
+        return (ags_direct or rs)[:2]
     if level == "district":
+        if ags_direct and len(ags_direct) >= 5:
+            return ags_direct[:5]
         return rs[:5]
+    # municipality: AGS is exactly 8 chars in Shapefile
+    if ags_direct and len(ags_direct) >= 8:
+        return ags_direct[:8]
     return rs[:8]
 
 
@@ -68,15 +80,25 @@ def _load_level(
     db: Session,
     run_id: int,
 ) -> tuple[int, int]:
-    geojson_name = next(
-        n for n in zf.namelist() if file_substr in n and n.endswith(".geojson")
-    )
-    with zf.open(geojson_name) as f:
-        fc = json.load(f)
+    # Read .shp, .dbf, .shx from the zip
+    prefix = f"{_ZIP_SUBDIR}/{file_substr}"
+    shp_data = io.BytesIO(zf.read(prefix + ".shp"))
+    dbf_data = io.BytesIO(zf.read(prefix + ".dbf"))
+    shx_data = io.BytesIO(zf.read(prefix + ".shx"))
+
+    sf = shapefile.Reader(shp=shp_data, dbf=dbf_data, shx=shx_data)
+    fields = [f[0] for f in sf.fields[1:]]  # skip deletion flag
 
     inserted = updated = 0
-    for feat in fc["features"]:
-        props = feat["properties"]
+    for shape_rec in sf.iterShapeRecords():
+        props = dict(zip(fields, shape_rec.record))
+
+        # Skip non-land areas (GF=4 is the actual land polygon)
+        # For states only — districts and municipalities don't have this issue
+        gf = props.get("GF")
+        if level == "state" and gf != 4:
+            continue
+
         ags = extract_ags(props, level)
         if not ags or len(ags) < 2:
             continue
@@ -85,10 +107,10 @@ def _load_level(
         population: int | None = props.get("EWZ")
         parent = parent_ags_for(ags, level)
 
-        raw_geom = from_geojson(json.dumps(feat["geometry"]))
+        # Convert shapefile geometry to shapely, then reproject
+        raw_geom = shapely_shape(shape_rec.shape.__geo_interface__)
         geom_4326 = _reproject_geom(raw_geom)
         if geom_4326.geom_type == "Polygon":
-            from shapely.geometry import MultiPolygon
             geom_4326 = MultiPolygon([geom_4326])
         wkb_hex = geom_4326.wkb_hex
 
