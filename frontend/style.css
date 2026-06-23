@@ -1,0 +1,891 @@
+/* ============================================================
+   style.css — Unfallkarte Deutschland
+   Forensic Cartography dark glass design system
+   ============================================================ */
+
+/* ── Design Tokens ─────────────────────────────────────────── */
+:root {
+  --bg-shell:       #0F1923;
+  --bg-panel:       rgba(13, 22, 35, 0.93);
+  --panel-border:   rgba(255, 255, 255, 0.07);
+  --accent-red:     #E84855;
+  --accent-amber:   #F4A261;
+  --accent-teal:    #2EC4B6;
+  --text-pri:       #EDF2F7;
+  --text-sec:       #7B96B2;
+  --text-dim:       #3D5166;
+  --surface:        #1A2535;
+  --divider:        rgba(255, 255, 255, 0.06);
+
+  --font-display:   'IBM Plex Sans Condensed', sans-serif;
+  --font-body:      'IBM Plex Sans', sans-serif;
+  --font-mono:      'IBM Plex Mono', monospace;
+
+  --panel-width:    320px;
+  --topbar-height:  48px;
+}
+
+/* ── Reset & Base ───────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-shell);
+  color: var(--text-pri);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+/* Global utility */
+.hidden {
+  display: none;
+}
+
+/* ── Top Bar ────────────────────────────────────────────────── */
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  height: var(--topbar-height);
+  background: rgba(8, 15, 25, 0.97);
+  border-bottom: 1px solid var(--panel-border);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-pri);
+  letter-spacing: -0.5px;
+}
+
+.topbar-title {
+  font-size: 13px;
+  color: var(--text-sec);
+  flex: 1;
+}
+
+.topbar-badges {
+  display: flex;
+  gap: 8px;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.badge--status.live {
+  color: var(--accent-teal);
+}
+
+.badge--status.error {
+  color: var(--accent-red);
+}
+
+/* ── Danger Alert Banner ────────────────────────────────────── */
+.danger-alert {
+  position: fixed;
+  top: var(--topbar-height);
+  left: 0;
+  right: 0;
+  z-index: 999;
+  background: var(--accent-red);
+  color: #fff;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transform: translateY(-100%);
+  transition: transform 0.3s ease;
+}
+
+/* Override: when .hidden is present the element is visually gone via transform;
+   JS removes .hidden and adds .show to animate in */
+.danger-alert.show {
+  transform: translateY(0);
+}
+
+.danger-alert__icon {
+  font-size: 18px;
+}
+
+.danger-alert__text {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.danger-alert__close {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  opacity: 0.7;
+}
+
+.danger-alert__close:hover {
+  opacity: 1;
+}
+
+/* ── Main Layout ────────────────────────────────────────────── */
+.layout {
+  position: fixed;
+  top: var(--topbar-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: row;
+}
+
+/* ── Glass Panel ────────────────────────────────────────────── */
+.glass-panel {
+  width: var(--panel-width);
+  min-width: var(--panel-width);
+  background: var(--bg-panel);
+  backdrop-filter: blur(20px);
+  border-right: 1px solid var(--panel-border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 100;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface) transparent;
+}
+
+.glass-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.glass-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.glass-panel::-webkit-scrollbar-thumb {
+  background: var(--surface);
+  border-radius: 2px;
+}
+
+/* ── Map ────────────────────────────────────────────────────── */
+#map {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Panel Sections ─────────────────────────────────────────── */
+.panel-section {
+  padding: 14px 16px;
+}
+
+.panel-label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+.panel-value {
+  color: var(--text-pri);
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: var(--font-mono);
+}
+
+.panel-divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 0 16px;
+}
+
+.panel-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  font-family: var(--font-mono);
+}
+
+/* ── Layer Toggles ──────────────────────────────────────────── */
+.layer-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.layer-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-sec);
+  user-select: none;
+}
+
+.layer-toggle input[type=checkbox] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--text-dim);
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.layer-toggle input[type=checkbox]:checked {
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
+.toggle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.toggle-dot--red   { background: var(--accent-red); }
+.toggle-dot--teal  { background: var(--accent-teal); }
+.toggle-dot--amber { background: var(--accent-amber); }
+
+/* ── Year Slider ────────────────────────────────────────────── */
+.year-slider {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 3px;
+  background: var(--surface);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.year-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-red);
+  cursor: pointer;
+}
+
+.year-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-red);
+  cursor: pointer;
+  border: none;
+}
+
+.year-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+/* ── Participant Chips ──────────────────────────────────────── */
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 5px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-body);
+}
+
+.chip:hover {
+  border-color: var(--text-sec);
+}
+
+.chip--active {
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+  color: #fff;
+}
+
+/* ── Severity Segmented Control ─────────────────────────────── */
+.seg-control {
+  display: flex;
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-body);
+}
+
+.seg-btn--active {
+  background: var(--accent-red);
+  color: #fff;
+}
+
+/* ── KPI Cards ──────────────────────────────────────────────── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.kpi-card {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--divider);
+}
+
+.kpi-card--red  { border-color: rgba(232, 72, 85, 0.3); }
+.kpi-card--teal { border-color: rgba(46, 196, 182, 0.3); }
+
+.kpi-value {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-pri);
+}
+
+.kpi-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* ── Chart Wrap ─────────────────────────────────────────────── */
+.chart-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.chart-wrap canvas {
+  width: 100% !important;
+}
+
+/* ── Day × Hour Heatgrid ────────────────────────────────────── */
+.heatgrid {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  grid-template-rows: repeat(7, 1fr);
+  gap: 1px;
+  margin-bottom: 4px;
+}
+
+.heatgrid-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 1px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.heatgrid-cell:hover {
+  opacity: 0.7;
+  outline: 1px solid var(--text-sec);
+}
+
+.heatgrid-labels {
+  display: flex;
+  gap: 2px;
+}
+
+.hg-day-label {
+  flex: 1;
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+/* ── Route Inputs ───────────────────────────────────────────── */
+.route-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--panel-border);
+  color: var(--text-pri);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 6px;
+  outline: none;
+  font-family: var(--font-body);
+}
+
+.route-input:focus {
+  border-color: var(--accent-teal);
+}
+
+.route-input::placeholder {
+  color: var(--text-dim);
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font-body);
+  transition: opacity 0.15s;
+}
+
+.btn:hover {
+  opacity: 0.85;
+}
+
+.btn--primary {
+  background: var(--accent-teal);
+  color: #0F1923;
+  font-weight: 600;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.btn--sm {
+  background: var(--surface);
+  color: var(--text-sec);
+  border: 1px solid var(--panel-border);
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* ── Q&A Accordion ──────────────────────────────────────────── */
+.accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.acc-item {
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.acc-header {
+  width: 100%;
+  background: var(--surface);
+  border: none;
+  color: var(--text-sec);
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  font-family: var(--font-body);
+  transition: background 0.15s;
+}
+
+.acc-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.acc-header.active {
+  color: var(--text-pri);
+}
+
+.acc-chevron {
+  font-size: 16px;
+  transition: transform 0.2s;
+}
+
+.acc-header.active .acc-chevron {
+  transform: rotate(90deg);
+}
+
+.acc-body {
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.acc-body.hidden {
+  display: none;
+}
+
+.acc-result {
+  font-size: 12px;
+  color: var(--text-sec);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  margin-top: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.acc-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.acc-select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--panel-border);
+  color: var(--text-pri);
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* ── Panel Footer ───────────────────────────────────────────── */
+.panel-footer {
+  padding: 16px;
+  border-top: 1px solid var(--divider);
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* ── Risk Gauge (floating) ──────────────────────────────────── */
+.risk-gauge {
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+  z-index: 500;
+  background: var(--bg-panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  backdrop-filter: blur(12px);
+  text-align: center;
+  transition: opacity 0.3s;
+}
+
+.gauge-svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.gauge-label {
+  font-size: 11px;
+  color: var(--text-sec);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+/* ── Dossier Card ───────────────────────────────────────────── */
+/* Note: .dossier uses transform-based show/hide, NOT display:none.
+   JS removes .hidden on load (or never adds it) and toggles .show. */
+.dossier {
+  position: fixed;
+  bottom: 0;
+  right: 16px;
+  width: 280px;
+  z-index: 600;
+  background: var(--bg-panel);
+  border: 1px solid var(--panel-border);
+  border-top: 3px solid var(--accent-red);
+  border-radius: 12px 12px 0 0;
+  backdrop-filter: blur(20px);
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dossier.show {
+  transform: translateY(0);
+}
+
+.dossier-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.dossier-kind {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  flex: 1;
+  color: var(--accent-red);
+}
+
+.dossier-kind.safe {
+  color: var(--accent-teal);
+}
+
+.dossier-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.dossier-close:hover {
+  color: var(--text-pri);
+}
+
+.dossier-body {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dossier-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dossier-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.dossier-value {
+  font-size: 13px;
+  color: var(--text-pri);
+}
+
+.dossier-value.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.dossier-gauge {
+  padding: 8px 16px 12px;
+}
+
+/* ── Map Controls ───────────────────────────────────────────── */
+.map-controls {
+  position: absolute;
+  bottom: 24px;
+  right: 16px;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.map-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: var(--bg-panel);
+  backdrop-filter: blur(12px);
+  color: var(--text-pri);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.map-btn:hover {
+  background: var(--surface);
+  border-color: var(--text-sec);
+}
+
+.map-btn.active {
+  background: var(--accent-teal);
+  color: #0F1923;
+  border-color: var(--accent-teal);
+}
+
+/* ── Leaflet Overrides ──────────────────────────────────────── */
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+.leaflet-container {
+  background: #e8e0d8;
+}
+
+.leaflet-popup-content-wrapper {
+  background: var(--bg-panel);
+  color: var(--text-pri);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.leaflet-popup-tip {
+  background: var(--bg-panel);
+}
+
+.leaflet-popup-close-button {
+  color: var(--text-sec) !important;
+}
+
+/* ── Sonar Pulse Animation ──────────────────────────────────── */
+.hotspot-marker {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  background: var(--accent-red);
+  border-radius: 50%;
+  border: 2px solid rgba(232, 72, 85, 0.8);
+}
+
+.hotspot-marker::before,
+.hotspot-marker::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-red);
+  animation: sonar-ring 2.4s ease-out infinite;
+}
+
+.hotspot-marker::after {
+  animation-delay: 1.2s;
+}
+
+@keyframes sonar-ring {
+  0%   { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+  100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+}
+
+/* ── User Location Dot ──────────────────────────────────────── */
+.user-dot {
+  width: 14px;
+  height: 14px;
+  background: #4A9EFF;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.4);
+  position: relative;
+}
+
+.user-dot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(74, 158, 255, 0.6);
+  animation: sonar-ring 2s ease-out infinite;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* ── Pulse on small toggle dot ──────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.5); opacity: 0.6; }
+}
+
+.pulse-small {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* ── Responsive — Mobile ≤ 640px ────────────────────────────── */
+@media (max-width: 640px) {
+  :root {
+    --panel-width: 100vw;
+  }
+
+  .layout {
+    flex-direction: column;
+  }
+
+  .glass-panel {
+    width: 100%;
+    height: 40vh;
+    min-width: unset;
+    border-right: none;
+    border-bottom: 1px solid var(--panel-border);
+    order: 2;
+  }
+
+  #map {
+    flex: none;
+    height: 60vh;
+    order: 1;
+  }
+
+  .topbar-title {
+    display: none;
+  }
+
+  .risk-gauge {
+    bottom: 42vh;
+  }
+
+  .dossier {
+    width: 100%;
+    right: 0;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .map-controls {
+    bottom: 62vh;
+  }
+}
+
+/* ── Reduced Motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .hotspot-marker::before,
+  .hotspot-marker::after,
+  .user-dot::before,
+  .pulse-small {
+    animation: none;
+  }
+}
