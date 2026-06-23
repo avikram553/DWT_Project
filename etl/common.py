@@ -1,6 +1,5 @@
 """Shared ETL utilities: download, hash, import_run tracking."""
 import hashlib
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,8 +22,11 @@ def download_file(url: str, dest: Path) -> Path:
     """Download url to dest. Skips download if dest already exists."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
-        print(f"[skip] {dest.name} already downloaded")
-        return dest
+        if dest.stat().st_size > 0:
+            print(f"[skip] {dest.name} already downloaded")
+            return dest
+        else:
+            dest.unlink()  # delete corrupt/empty file, re-download
     print(f"[download] {url} → {dest.name}")
     with httpx.stream("GET", url, follow_redirects=True, timeout=120) as r:
         r.raise_for_status()
@@ -61,11 +63,13 @@ def finish_import_run(
     rows_inserted: int,
     rows_updated: int,
     file_hash: str | None = None,
+    error_message: str | None = None,
 ) -> None:
     db.execute(
         text(
             "UPDATE import_runs SET finished_at=:ts, status=:status, "
-            "rows_inserted=:ins, rows_updated=:upd, file_hash_sha256=:hash "
+            "rows_inserted=:ins, rows_updated=:upd, file_hash_sha256=:hash, "
+            "error_message=:errmsg "
             "WHERE id=:id"
         ),
         {
@@ -74,6 +78,7 @@ def finish_import_run(
             "ins": rows_inserted,
             "upd": rows_updated,
             "hash": file_hash,
+            "errmsg": error_message,
             "id": run_id,
         },
     )

@@ -24,7 +24,7 @@ VG250_URL = (
     "https://daten.gdz.bkg.bund.de/produkte/vg/vg250-ew_ebenen_1231/"
     "aktuell/vg250-ew_12-31.utm32s.shape.ebenen.zip"
 )
-VG250_ZIP = RAW_DATA_DIR / "vg250-ew.geojson.zip"
+VG250_ZIP = RAW_DATA_DIR / "vg250-ew.shape.zip"
 
 # Subdirectory inside the zip where shapefiles live
 _ZIP_SUBDIR = "vg250-ew_12-31.utm32s.shape.ebenen/vg250-ew_ebenen_1231"
@@ -103,7 +103,13 @@ def _load_level(
         if not ags or len(ags) < 2:
             continue
 
+        if shape_rec.shape.shapeType == 0:
+            continue
+
         name: str = props.get("GEN") or props.get("BEZ") or ""
+        if not name:
+            continue
+
         population: int | None = props.get("EWZ")
         parent = parent_ags_for(ags, level)
 
@@ -163,13 +169,17 @@ def run_regions_etl(db: Session) -> dict:
                 print(f"[regions]   {ins} inserted, {upd} updated")
                 total_ins += ins
                 total_upd += upd
-    except Exception:
+    except Exception as exc:
+        # Remove cached zip if it may be corrupt so next run re-downloads
+        if VG250_ZIP.exists() and VG250_ZIP.stat().st_size == 0:
+            VG250_ZIP.unlink()
         finish_import_run(
             db, run_id,
             status="failed",
             rows_inserted=total_ins,
             rows_updated=total_upd,
             file_hash=file_hash,
+            error_message=str(exc),
         )
         raise
 

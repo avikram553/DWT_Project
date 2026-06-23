@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from api.db import get_db
 from api.lib.responses import envelope
-from api.models import Region, RegionLevel
+from api.models import Region
 
 router = APIRouter(prefix="/regions", tags=["regions"])
 
