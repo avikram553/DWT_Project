@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description="DBW ETL update orchestrator")
     parser.add_argument(
         "--source",
-        choices=["unfallatlas", "regionalatlas", "regionalstatistik", "gvisys"],
+        choices=["unfallatlas", "regionalatlas", "regionalstatistik", "gvisys", "zones"],
     )
     parser.add_argument("--year", type=int, help="Process a single year (unfallatlas only)")
     parser.add_argument("--dry-run", action="store_true")
@@ -48,6 +48,13 @@ def main():
             print("[update] Running indicators ETL...")
             result = run_indicators_etl(db)
             print(f"[update] Indicators done: {result}")
+
+        # Phase 6: hotspot + safe zone precomputation (requires phases 3+4)
+        if args.source is None or args.source == "zones":
+            from etl.zones import run_zones_etl
+            print("[update] Computing accident zones...")
+            result = run_zones_etl(db)
+            print(f"[update] Zones done: {result}")
 
     finally:
         db.close()
