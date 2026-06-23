@@ -218,11 +218,11 @@ async function updateKPIs() {
   let url = `/aggregates/accidents?year=${state.year}`;
   if (state.category === '1') url += '&category=1';
   const res = await apiFetch(url);
-  const total = res.metadata?.total_count || res.results.reduce((s, r) => s + r.accident_count, 0);
+  const total = res.metadata?.total_count ?? res.results.reduce((s, r) => s + r.accident_count, 0);
 
   // Fatal count: always fetch category=1 for kpiFatal
   const fatalRes = await apiFetch(`/aggregates/accidents?year=${state.year}&category=1`);
-  const fatal = fatalRes.metadata?.total_count || fatalRes.results.reduce((s, r) => s + r.accident_count, 0);
+  const fatal = fatalRes.metadata?.total_count ?? fatalRes.results.reduce((s, r) => s + r.accident_count, 0);
 
   countUp('kpiTotal', total);
   countUp('kpiFatal', fatal);
@@ -318,7 +318,7 @@ function renderHourHistogram() {
         data: counts,
         backgroundColor: counts.map((c, i) => {
           if (state.hourFilter === i) return '#E84855';
-          const t = counts.length ? c / Math.max(...counts) : 0;
+          const t = counts.length ? c / Math.max(...counts, 1) : 0;
           return `rgba(46,196,182,${0.2 + t * 0.7})`;
         }),
         borderWidth: 0,
@@ -571,13 +571,14 @@ function checkDangerAlert(yourZone, hotspots) {
     const dist = minDist < 50 ? 'unmittelbar' : `${Math.round(minDist)}m`;
     document.getElementById('dangerAlertText').textContent =
       `⚠ Unfallschwerpunkt ${dist === 'unmittelbar' ? 'an diesem Standort' : 'in ' + dist + ' Entfernung'} (${nearestHotspot.accident_count} Unfälle in 3 Jahren)`;
-    alertEl.classList.add('show');
-    setTimeout(() => alertEl.classList.remove('show'), 8000);
+    alertEl.classList.remove('hidden'); alertEl.classList.add('show');
+    setTimeout(() => { alertEl.classList.remove('show'); alertEl.classList.add('hidden'); }, 8000);
   }
 }
 
 document.getElementById('dangerAlertClose').addEventListener('click', () => {
-  document.getElementById('dangerAlert').classList.remove('show');
+  const alert = document.getElementById('dangerAlert');
+  alert.classList.remove('show'); alert.classList.add('hidden');
 });
 
 // --- Live Tracking ---
@@ -601,10 +602,10 @@ function toggleTracking() {
         updateUserDot(pos.coords.latitude, pos.coords.longitude);
         if (now - lastUpdate > 5000) {  // refresh zone data every 5 seconds
           lastUpdate = now;
-          handlePosition(pos.coords.latitude, pos.coords.longitude);
+          handlePosition(pos.coords.latitude, pos.coords.longitude).catch(console.error);
         }
       },
-      () => { toggleTracking(); }
+      err => { if (state.trackingId !== null) toggleTracking(); }  // only if still tracking
     );
   }
 }
@@ -864,4 +865,4 @@ async function init() {
   ]);
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => init().catch(console.error));
