@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from api.db import get_db
@@ -32,6 +32,39 @@ def list_regions(
     return envelope(
         [_region_to_dict(r) for r in regions],
         sources_used=["regionalatlas"],
+    )
+
+
+@router.get("/{ags}/indicators")
+def get_region_indicators(ags: str, db: Session = Depends(get_db)):
+    """Return all indicator time-series for a region."""
+    region = db.execute(select(Region).where(Region.ags == ags)).scalar_one_or_none()
+    if region is None:
+        raise HTTPException(status_code=404, detail=f"Region '{ags}' not found")
+
+    rows = db.execute(
+        text(
+            """
+            SELECT i.name, i.unit, iv.year, iv.value
+            FROM indicator_values iv
+            JOIN indicators i ON i.id = iv.indicator_id
+            WHERE iv.region_id = :ags
+            ORDER BY i.name, iv.year
+            """
+        ),
+        {"ags": ags},
+    ).fetchall()
+
+    by_indicator: dict[str, list] = {}
+    for ind_name, unit, year, value in rows:
+        if ind_name not in by_indicator:
+            by_indicator[ind_name] = {"name": ind_name, "unit": unit, "values": []}
+        by_indicator[ind_name]["values"].append({"year": year, "value": value})
+
+    return envelope(
+        list(by_indicator.values()),
+        sources_used=["regionalstatistik"],
+        extra_meta={"region": _region_to_dict(region)},
     )
 
 
