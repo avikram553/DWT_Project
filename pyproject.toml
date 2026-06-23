@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "shapely>=2.0",
     "pyproj>=3.6",
+    "pyshp>=2.3",
 ]
 
 [project.optional-dependencies]
