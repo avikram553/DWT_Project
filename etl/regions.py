@@ -1,14 +1,12 @@
 """Phase 2 ETL: load German administrative regions from BKG VG250-EW GeoJSON."""
 from __future__ import annotations
 
-import io
 import json
 import zipfile
-from pathlib import Path
 from typing import Any
 
 from pyproj import Transformer
-from shapely import from_geojson, to_wkb
+from shapely import from_geojson
 from shapely.ops import transform
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -37,6 +35,7 @@ _TRANSFORMER = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
 
 
 def reproject_coords(x: float, y: float) -> tuple[float, float]:
+    """Transform point from EPSG:25832 to EPSG:4326. Returns (lon, lat)."""
     lon, lat = _TRANSFORMER.transform(x, y)
     return lon, lat
 
@@ -142,7 +141,7 @@ def run_regions_etl(db: Session) -> dict:
                 print(f"[regions]   {ins} inserted, {upd} updated")
                 total_ins += ins
                 total_upd += upd
-    except Exception as exc:
+    except Exception:
         finish_import_run(
             db, run_id,
             status="failed",
