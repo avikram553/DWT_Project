@@ -670,11 +670,74 @@ async function showInsightHex(object) {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+const EQ_QUERIES = {
+  1: () => apiFetch('/aggregates/accidents?aggregate=earliest_year'),
+  2: () => apiFetch('/aggregates/accidents?state=SN&year=2023&category=2'),
+  3: () => apiFetch('/aggregates/accidents?state=NW&aggregate=earliest_year'),
+  4: () => apiFetch('/aggregates/accidents?state=MV&aggregate=earliest_year'),
+  5: () => apiFetch('/accidents?state=BE&year=2023&participant=pedestrian'),
+  6: () => apiFetch('/aggregates/accident-rate?denominator=cars_pkw&year=2023&level=district'),
+  7: () => apiFetch('/aggregates/accident-rate/top?level=district&year=2024&severity=fatal&denominator=population&limit=5&min_population=50000'),
+};
+
+function formatEqResult(q, res) {
+  if (q <= 4) {
+    const val = res.data?.earliest_year ?? res.metadata?.total_count
+      ?? (res.results ? res.results.reduce((s, r) => s + (r.accident_count || 0), 0) : '—');
+    return `<div class="eq-result-row"><span>Result</span><span>${val.toLocaleString('en-US')}</span></div>`;
+  }
+  if (q === 5) {
+    const total = res.metadata?.total_count ?? res.results?.length ?? '—';
+    return `<div class="eq-result-row"><span>Pedestrian accidents</span><span>${Number(total).toLocaleString('en-US')}</span></div>`;
+  }
+  if (q === 6) {
+    return (res.results || []).slice(0, 5).map(r =>
+      `<div class="eq-result-row"><span>${r.name}</span><span>${r.rate_per_100k ?? '—'}</span></div>`
+    ).join('');
+  }
+  if (q === 7) {
+    return (res.results || []).map(r =>
+      `<div class="eq-result-row"><span>${r.rank}. ${r.name}</span><span>${r.rate_per_100k ?? '—'}</span></div>`
+    ).join('');
+  }
+  return '';
+}
+
+function wireExaminerPanel() {
+  const toggle = document.getElementById('examiner-toggle');
+  const body   = document.getElementById('examiner-body');
+  toggle.addEventListener('click', () => {
+    body.classList.toggle('hidden');
+    toggle.classList.toggle('collapsed');
+    toggle.textContent = body.classList.contains('hidden') ? '▸' : '▾';
+  });
+
+  document.querySelectorAll('.eq-card').forEach(card => {
+    const q   = parseInt(card.dataset.q);
+    const btn = card.querySelector('.eq-run');
+    const out = card.querySelector('.eq-result');
+    btn.addEventListener('click', async () => {
+      btn.textContent = '…'; btn.classList.add('loading');
+      try {
+        const res = await EQ_QUERIES[q]();
+        out.innerHTML = formatEqResult(q, res);
+        out.classList.remove('hidden');
+      } catch {
+        out.innerHTML = '<span style="color:#EF4444">Request failed</span>';
+        out.classList.remove('hidden');
+      } finally {
+        btn.textContent = 'Run'; btn.classList.remove('loading');
+      }
+    });
+  });
+}
+
 async function init() {
   await checkApiStatus();
   wirePanelA();
   wirePanelB();
   wireScrubber();
+  wireExaminerPanel();
   document.getElementById('insight-close').addEventListener('click', closeInsightPanel);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInsightPanel(); });
   await Promise.all([loadChoropleth(), updateKPIs(), loadAllYearData()]);
