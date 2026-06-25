@@ -377,24 +377,22 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 
 .lp-q-bar { display: flex; align-items: center; gap: 6px; }
 
-.lp-year-sel {
-  flex: 1; padding: 4px 8px;
-  background: var(--bg-card); border: 1px solid var(--border-default);
+.lp-year-sel, .lp-state-sel, .lp-city-sel {
+  padding: 4px 8px;
+  background: rgba(17,24,39,0.85); border: 1px solid var(--border-default);
   border-radius: 6px; color: var(--text-secondary); font-size: 11px;
   cursor: pointer; outline: none; -webkit-appearance: none; appearance: none;
 }
-.lp-year-sel:focus { border-color: var(--accent-red); }
-.lp-state-sel {
-  flex: 1.4; padding: 4px 8px;
-  background: var(--bg-card); border: 1px solid var(--border-default);
-  border-radius: 6px; color: var(--text-secondary); font-size: 11px;
-  cursor: pointer; outline: none; -webkit-appearance: none; appearance: none;
+.lp-year-sel { flex: 1; }
+.lp-state-sel, .lp-city-sel { flex: 1.4; }
+.lp-year-sel:focus, .lp-state-sel:focus, .lp-city-sel:focus { border-color: var(--accent-red); }
+.lp-year-sel option, .lp-state-sel option, .lp-city-sel option {
+  background: #111827; color: var(--text-primary);
 }
-.lp-state-sel:focus { border-color: var(--accent-red); }
 
 .lp-run {
   flex-shrink: 0; font-size: 11px; padding: 4px 10px; border-radius: 6px;
-  background: transparent; border: 1px solid var(--border-default);
+  background: rgba(17,24,39,0.85); border: 1px solid var(--border-default);
   color: var(--text-primary); cursor: pointer;
   transition: background 150ms, border-color 150ms;
 }
