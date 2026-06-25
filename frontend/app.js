@@ -755,7 +755,7 @@ function showInsightHazard(zone) {
     <div class="insight-title">⚠️ Accident Hotspot</div>
     <div class="insight-subtitle">${zone.region_name || 'Unknown area'}</div>
     <div class="insight-stat">
-      <span>Accidents (2022–2024)</span>
+      <span>Accidents (${zone.year_from}–${zone.year_to})</span>
       <span class="insight-stat-val">${zone.accident_count}</span>
     </div>
     <div class="insight-stat">
@@ -791,7 +791,7 @@ async function loadNearbyHazards() {
         if (zones.length === 0) {
           showToast('No accident hotspots within 500 m of your location.');
         } else {
-          map.flyTo([lat, lon], 15, { duration: 1.2 });
+          map.flyTo([lat, lon], 12, { duration: 1.2 });
           for (const zone of zones) {
             const [clat, clon] = cellCentroid(zone.cell_geom);
             const marker = L.marker([clat, clon], {
@@ -806,8 +806,11 @@ async function loadNearbyHazards() {
             marker.addTo(layers.hazards);
           }
         }
-      } catch {
-        showToast('Could not load nearby hazards.');
+      } catch (err) {
+        const msg = String(err).includes('422')
+          ? 'Your location is outside Germany.'
+          : 'Could not load nearby hazards.';
+        showToast(msg);
       }
       btn.textContent = '📍 Nearby Hazards';
       btn.disabled = false;
