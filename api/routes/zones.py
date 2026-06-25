@@ -45,6 +45,7 @@ _AROUND_SQL = """
            ) AS distance_m
     FROM accident_zones az
     LEFT JOIN regions r ON r.ags = az.region_id
+    WHERE az.kind = 'hotspot'
     {year_filter}
     ORDER BY az.cell_geom_proj
           <-> ST_Transform(ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 25832)
@@ -69,6 +70,32 @@ _YOUR_ZONE_SQL = text("""
 """)
 
 
+_NEARBY_HAZARDS_SQL = text("""
+    SELECT az.kind,
+           az.accident_count,
+           az.year_from,
+           az.year_to,
+           az.region_id,
+           r.name AS region_name,
+           ST_AsGeoJSON(az.cell_geom)::json AS cell_geom,
+           ST_Distance(
+               az.cell_geom_proj,
+               ST_Transform(ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 25832)
+           ) AS distance_m
+    FROM accident_zones az
+    LEFT JOIN regions r ON r.ags = az.region_id
+    WHERE az.kind = 'hotspot'
+      AND ST_DWithin(
+          az.cell_geom_proj,
+          ST_Transform(ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 25832),
+          500
+      )
+    ORDER BY az.cell_geom_proj
+          <-> ST_Transform(ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 25832)
+    LIMIT 5
+""")
+
+
 def _row_to_dict(r) -> dict:
     return {
         "kind": r[0],
@@ -86,12 +113,11 @@ def _row_to_dict(r) -> dict:
 def nearest_zones(
     lat: float = Query(..., ge=47.27, le=55.06),
     lon: float = Query(..., ge=5.87, le=15.04),
-    type: str = Query("hotspot", pattern="^(hotspot|safe)$"),
     year: int | None = None,
     limit: int = Query(5, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    params: dict = {"lat": lat, "lon": lon, "kind": type, "limit": limit}
+    params: dict = {"lat": lat, "lon": lon, "kind": "hotspot", "limit": limit}
     year_filter = ""
     if year is not None:
         year_filter = "AND az.year_from <= :year AND az.year_to >= :year"
@@ -104,7 +130,7 @@ def nearest_zones(
     return envelope(
         [_row_to_dict(r) for r in rows],
         sources_used=["unfallatlas"],
-        extra_meta={"type": type, "lat": lat, "lon": lon},
+        extra_meta={"lat": lat, "lon": lon},
     )
 
 
@@ -118,7 +144,7 @@ def zones_around(
     params: dict = {"lat": lat, "lon": lon}
     year_filter = ""
     if year is not None:
-        year_filter = "WHERE az.year_from <= :year AND az.year_to >= :year"
+        year_filter = "AND az.year_from <= :year AND az.year_to >= :year"
         params["year"] = year
 
     rows = db.execute(
@@ -126,7 +152,6 @@ def zones_around(
     ).fetchall()
 
     hotspots = [_row_to_dict(r) for r in rows if r[0] == "hotspot"]
-    safe_zones = [_row_to_dict(r) for r in rows if r[0] == "safe"]
 
     your_zone_row = db.execute(_YOUR_ZONE_SQL, {"lat": lat, "lon": lon}).fetchone()
     your_zone = None
@@ -142,7 +167,24 @@ def zones_around(
         }
 
     return envelope(
-        {"hotspots": hotspots, "safe_zones": safe_zones, "your_zone": your_zone},
+        {"hotspots": hotspots, "your_zone": your_zone},
         sources_used=["unfallatlas"],
         extra_meta={"lat": lat, "lon": lon},
+    )
+
+
+@router.get("/nearby-hazards")
+def nearby_hazards(
+    lat: float = Query(..., ge=47.27, le=55.06),
+    lon: float = Query(..., ge=5.87, le=15.04),
+    db: Session = Depends(get_db),
+):
+    rows = db.execute(
+        _NEARBY_HAZARDS_SQL, {"lat": lat, "lon": lon}
+    ).fetchall()
+
+    return envelope(
+        [_row_to_dict(r) for r in rows],
+        sources_used=["unfallatlas"],
+        extra_meta={"lat": lat, "lon": lon, "radius_m": 500},
     )
