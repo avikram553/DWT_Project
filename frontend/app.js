@@ -291,7 +291,40 @@ function maybeLoadMunicipalities() {
     if (map.hasLayer(layers.municipalities)) map.removeLayer(layers.municipalities);
   }
 }
-function loadHex()                     { /* Task 7 */ }
+function buildHexLayer(data) {
+  return new deck.HexagonLayer({
+    id: 'hex-layer',
+    data,
+    getPosition: d => d.position,
+    radius: map.getZoom() < 10 ? 500 : 200,
+    colorRange: SCALE_RGB,
+    elevationRange: [0, 500],
+    elevationScale: 4,
+    upperPercentile: 99,
+    coverage: 0.9,
+    opacity: 0.75,
+    pickable: true,
+    extruded: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 255, 30],
+    onClick: ({ object }) => { if (object) showInsightHex(object); },
+  });
+}
+
+async function loadHex() {
+  const b = map.getBounds();
+  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}`;
+  if (state.category)    url += `&category=${state.category}`;
+  if (state.participant) url += `&participant=${state.participant}`;
+
+  let res;
+  try { res = await apiFetch(url); } catch { return; }
+
+  const data = res.results.map(a => ({ position: [a.lon, a.lat], category: a.category }));
+  deckInstance.setProps({ layers: [buildHexLayer(data)] });
+  updateDynamicStat(`⬡ ${data.length.toLocaleString('en-US')}`, 'in viewport');
+}
+
 function loadPoints()                  { /* Task 8 */ }
 function wirePanelA()                  { /* Task 9 */ }
 function wirePanelB()                  { /* Task 9 */ }
@@ -299,7 +332,7 @@ async function updateKPIs()            { /* Task 9 */ }
 async function loadAllYearData()       { /* Task 10 */ }
 function wireScrubber()                { /* Task 10 */ }
 function showInsightDistrict(ags, name, count) { console.log('district click', ags, name, count); }
-function showInsightHex()              { /* Task 11 */ }
+function showInsightHex(object)        { console.log('hex click', object); }
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
