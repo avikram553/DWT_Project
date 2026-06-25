@@ -327,21 +327,14 @@ async function loadHex() {
   updateDynamicStat(`⬡ ${data.length.toLocaleString('en-US')}`, 'in viewport');
 }
 
-const SEV_STYLE = {
-  1: { radius: 10, fillColor: '#7F1D1D', color: '#EF4444',              weight: 2 },
-  2: { radius: 7,  fillColor: '#EF4444', color: 'rgba(255,255,255,0.3)', weight: 1 },
-  3: { radius: 5,  fillColor: '#C2410C', color: 'rgba(255,255,255,0.2)', weight: 1 },
-};
+const SEV_BG = { 1: '#7F1D1D', 2: '#EF4444', 3: '#C2410C' };
 
-function makePulseRing(latlng) {
-  return L.marker(latlng, {
-    icon: L.divIcon({
-      className: '',
-      html: '<div class="pulse-ring" style="width:20px;height:20px;margin:-10px 0 0 -10px"></div>',
-      iconSize: [0, 0],
-    }),
-    interactive: false,
-  });
+function getParticipantIcon(acc) {
+  if (acc.participant_bike)       return '🚲';
+  if (acc.participant_pedestrian) return '🚶';
+  if (acc.participant_truck)      return '🚛';
+  if (acc.participant_car)        return '🚗';
+  return '💥';
 }
 
 function clusterColor(leaves) {
@@ -352,8 +345,15 @@ function clusterColor(leaves) {
 }
 
 function renderSinglePoint(acc) {
-  const sev = SEV_STYLE[acc.category] || SEV_STYLE[3];
-  const marker = L.circleMarker([acc.lat, acc.lon], { ...sev, fillOpacity: 0.85 });
+  const bg   = SEV_BG[acc.category] || SEV_BG[3];
+  const icon = getParticipantIcon(acc);
+  const marker = L.marker([acc.lat, acc.lon], {
+    icon: L.divIcon({
+      className: '',
+      html: `<div class="acc-icon" style="background:${bg}">${icon}</div>`,
+      iconSize: [28, 28], iconAnchor: [14, 14],
+    }),
+  });
   marker.on('click', () => showDetailCard(acc, [acc.lat, acc.lon]));
   return marker;
 }
@@ -397,13 +397,11 @@ async function loadPoints() {
       } else {
         const acc = c.properties.acc;
         renderSinglePoint(acc).addTo(layers.accidents);
-        if (acc.category === 1) makePulseRing([acc.lat, acc.lon]).addTo(layers.accidents);
       }
     }
   } else {
     for (const acc of accidents) {
       renderSinglePoint(acc).addTo(layers.accidents);
-      if (acc.category === 1) makePulseRing([acc.lat, acc.lon]).addTo(layers.accidents);
     }
   }
 
