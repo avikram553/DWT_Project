@@ -777,6 +777,9 @@ async function loadNearbyHazards() {
   layers.stateBoundary.clearLayers();
   layers.accidents.clearLayers();
   layers.hazards.clearLayers();
+  map.removeLayer(layers.choropleth);
+  map.removeLayer(layers.stateBoundary);
+  map.removeLayer(layers.accidents);
 
   if (!navigator.geolocation) {
     showToast('Geolocation not supported by your browser.');
@@ -792,10 +795,18 @@ async function loadNearbyHazards() {
       try {
         const res = await apiFetch(`/zones/nearby-hazards?lat=${lat}&lon=${lon}`);
         const zones = res.results || [];
+        map.flyTo([lat, lon], 12, { duration: 1.2 });
+        L.marker([lat, lon], {
+          icon: L.divIcon({
+            className: '',
+            html: '<div style="width:14px;height:14px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 6px rgba(59,130,246,0.8)"></div>',
+            iconSize: [14, 14],
+            iconAnchor: [7, 7],
+          }),
+        }).addTo(layers.hazards);
         if (zones.length === 0) {
           showToast('No accident hotspots within 500 m of your location.');
         } else {
-          map.flyTo([lat, lon], 12, { duration: 1.2 });
           for (const zone of zones) {
             const [clat, clon] = cellCentroid(zone.cell_geom);
             const marker = L.marker([clat, clon], {
