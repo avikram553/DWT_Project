@@ -772,6 +772,10 @@ async function loadNearbyHazards() {
   const btn = document.getElementById('btn-nearby-hazards');
   btn.textContent = 'Loading…';
   btn.disabled = true;
+  layers.choropleth.clearLayers();
+  layers.municipalities.clearLayers();
+  layers.stateBoundary.clearLayers();
+  layers.accidents.clearLayers();
   layers.hazards.clearLayers();
 
   if (!navigator.geolocation) {
