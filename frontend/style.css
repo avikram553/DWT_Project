@@ -24,10 +24,10 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 
 /* Zoom buttons — match glass panel style, sit above zoom badge */
 .leaflet-bottom.leaflet-right {
-  bottom: 16px; right: 50%; transform: translateX(50%);
+  bottom: 50%; right: 16px; transform: translateY(50%);
 }
 .leaflet-control-zoom {
-  display: flex !important; flex-direction: row !important;
+  display: flex !important; flex-direction: column !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
   border-radius: 10px !important; overflow: hidden;
   backdrop-filter: blur(12px);
@@ -35,13 +35,13 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 .leaflet-control-zoom a {
   background: rgba(17,24,39,0.85) !important;
   color: #F9FAFB !important; border: none !important;
-  border-right: 1px solid rgba(255,255,255,0.08) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
   width: 36px !important; height: 36px !important;
   line-height: 36px !important; font-size: 18px !important;
   transition: background 150ms !important;
   float: none !important;
 }
-.leaflet-control-zoom a:last-child { border-right: none !important; }
+.leaflet-control-zoom a:last-child { border-bottom: none !important; }
 .leaflet-control-zoom a:hover { background: rgba(36,52,71,0.95) !important; }
 
 /* ── deck.gl canvas ── */
