@@ -22,17 +22,16 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 /* ── Map ── */
 #map { position: fixed; inset: 0; z-index: 0; }
 
-/* Attribution — pin to bottom-left as a quiet footer */
-.leaflet-bottom.leaflet-left { bottom: 0; left: 0; width: 100%; pointer-events: none; }
-.leaflet-control-attribution {
-  width: 100%; text-align: center; pointer-events: auto;
-  background: rgba(11,18,32,0.75) !important;
-  backdrop-filter: blur(6px);
-  color: #6B7280 !important; font-size: 10px !important;
-  padding: 4px 12px !important; border-radius: 0 !important;
-  border-top: 1px solid rgba(255,255,255,0.06) !important;
+/* Attribution footer */
+.map-footer {
+  position: fixed; bottom: 0; left: 0; width: 100%; z-index: 1000;
+  text-align: center; font-size: 10px; color: #6B7280;
+  background: rgba(11,18,32,0.75); backdrop-filter: blur(6px);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding: 4px 12px; pointer-events: auto;
 }
-.leaflet-control-attribution a { color: #9CA3AF !important; }
+.map-footer a { color: #9CA3AF; text-decoration: none; }
+.map-footer a:hover { color: #F9FAFB; }
 
 /* Zoom buttons — match glass panel style, sit above zoom badge */
 .leaflet-bottom.leaflet-right {

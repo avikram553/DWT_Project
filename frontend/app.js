@@ -45,6 +45,7 @@ const map = L.map('map', {
   zoomDelta: 0.5,
   wheelPxPerZoomLevel: 60,
   zoomAnimation: true,
+  attributionControl: false,
 });
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '© OpenStreetMap contributors © CARTO',
