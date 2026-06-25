@@ -601,8 +601,98 @@ function wireScrubber() {
     }, 1500);
   });
 }
-function showInsightDistrict(ags, name, count) { console.log('district click', ags, name, count); }
-function showInsightHex(object)        { console.log('hex click', object); }
+// ── Insight panel ──────────────────────────────────────────────────────────
+function openInsightPanel(html) {
+  document.getElementById('insight-content').innerHTML = html;
+  document.getElementById('insight-panel').classList.add('open');
+}
+
+function closeInsightPanel() {
+  document.getElementById('insight-panel').classList.remove('open');
+}
+
+async function showInsightDistrict(ags, name, count) {
+  let trend = YEARS.map(() => 0);
+  try {
+    const res = await apiFetch(`/aggregates/accidents?level=district&ags=${ags}`);
+    const byYear = {};
+    for (const r of res.results) byYear[r.year] = (byYear[r.year] || 0) + r.accident_count;
+    trend = YEARS.map(y => byYear[y] || 0);
+  } catch { /* show zeros */ }
+
+  const maxT = Math.max(...trend, 1);
+  const colW = 14;
+  const sparkBars = trend.map((v, i) => {
+    const h = (v / maxT) * 30;
+    const fill = (v === Math.max(...trend)) ? '#EF4444' : '#8B6914';
+    return `<rect x="${i * colW}" y="${30 - h}" width="${colW - 2}" height="${h}" fill="${fill}"/>`;
+  }).join('');
+
+  openInsightPanel(`
+    <div class="insight-title">${name}</div>
+    <div class="insight-subtitle">District · ${state.year}</div>
+    <div class="insight-stat">
+      <span>Total accidents</span>
+      <span class="insight-stat-val">${count.toLocaleString('en-US')}</span>
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:11px;color:#6B7280;margin-bottom:6px">Trend 2016–2024</div>
+      <svg viewBox="0 0 ${YEARS.length * colW} 32" style="width:100%;height:40px">
+        ${sparkBars}
+      </svg>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#6B7280;margin-top:2px">
+        <span>2016</span><span>2024</span>
+      </div>
+    </div>
+  `);
+}
+
+const geoCache = new Map();
+
+async function reverseGeocode(lat, lng) {
+  const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+  if (geoCache.has(key)) return geoCache.get(key);
+  try {
+    const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+    const data = await res.json();
+    const addr = data.address?.road || data.display_name || `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+    geoCache.set(key, addr);
+    return addr;
+  } catch {
+    return `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+  }
+}
+
+async function showInsightHex(object) {
+  const points  = object.points || [];
+  const count   = points.length;
+  const fatal   = points.filter(p => p.source?.category === 1).length;
+  const serious = points.filter(p => p.source?.category === 2).length;
+  const minor   = count - fatal - serious;
+  const lat = object.position?.[1] ?? 0;
+  const lng = object.position?.[0] ?? 0;
+  const addr = await reverseGeocode(lat, lng);
+
+  openInsightPanel(`
+    <div class="insight-title">Hex Cell</div>
+    <div class="insight-subtitle">${addr}</div>
+    <div class="insight-stat">
+      <span>Total accidents</span><span class="insight-stat-val">${count}</span>
+    </div>
+    <div class="insight-stat">
+      <span>Fatal</span>
+      <span class="insight-stat-val" style="color:#7F1D1D">${fatal}</span>
+    </div>
+    <div class="insight-stat">
+      <span>Serious</span>
+      <span class="insight-stat-val" style="color:#EF4444">${serious}</span>
+    </div>
+    <div class="insight-stat">
+      <span>Minor</span>
+      <span class="insight-stat-val" style="color:#C2410C">${minor}</span>
+    </div>
+  `);
+}
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
@@ -610,6 +700,8 @@ async function init() {
   wirePanelA();
   wirePanelB();
   wireScrubber();
+  document.getElementById('insight-close').addEventListener('click', closeInsightPanel);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInsightPanel(); });
   await Promise.all([loadChoropleth(), updateKPIs(), loadAllYearData()]);
 }
 
