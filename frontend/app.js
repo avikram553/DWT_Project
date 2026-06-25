@@ -199,7 +199,74 @@ async function checkApiStatus() {
 }
 
 // ── Stubs filled by Tasks 5–11 ─────────────────────────────────────────────
-function loadChoropleth()              { /* Task 5 */ }
+async function loadChoropleth() {
+  layers.choropleth.clearLayers();
+
+  let countUrl = `/aggregates/accidents?level=district&year=${state.year}`;
+  if (state.category)    countUrl += `&category=${state.category}`;
+  if (state.participant) countUrl += `&participant=${state.participant}`;
+
+  const [countRes, geoRes] = await Promise.all([
+    apiFetch(countUrl),
+    apiFetch('/regions?level=district'),
+  ]);
+
+  const lookup = {};
+  for (const r of countRes.results) {
+    lookup[String(r.region_id)] = (lookup[String(r.region_id)] || 0) + r.accident_count;
+  }
+
+  const features = geoRes.results.map(r => ({
+    type: 'Feature',
+    properties: { ags: String(r.ags), name: r.name },
+    geometry: r.geom,
+  }));
+
+  const showLabels = map.getZoom() >= 7;
+
+  L.geoJSON(features, {
+    style: feature => ({
+      fillColor: scaleColor(lookup[feature.properties.ags] || 0),
+      fillOpacity: 0.75,
+      color: 'rgba(255,255,255,0.08)',
+      weight: 1,
+    }),
+    onEachFeature: (feature, lyr) => {
+      const count = lookup[feature.properties.ags] || 0;
+      lyr.bindTooltip(
+        `<strong>${feature.properties.name}</strong><br>${count.toLocaleString('en-US')} accidents`,
+        { sticky: true }
+      );
+      if (showLabels) {
+        lyr.bindTooltip(feature.properties.name, {
+          permanent: true, className: 'district-label', direction: 'center',
+        });
+      }
+      lyr.on('mouseover', () => lyr.setStyle({ color: 'rgba(255,255,255,0.25)', weight: 1.5 }));
+      lyr.on('mouseout',  () => lyr.setStyle({ color: 'rgba(255,255,255,0.08)', weight: 1 }));
+      lyr.on('click', () => showInsightDistrict(feature.properties.ags, feature.properties.name, count));
+    },
+  }).addTo(layers.choropleth);
+
+  renderLegend();
+}
+
+function renderLegend() {
+  let el = document.getElementById('choropleth-legend');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'choropleth-legend';
+    el.className = 'choropleth-legend';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = [
+    ['#2D3748','0'], ['#4A4030','1–50'], ['#6B5B3E','51–200'],
+    ['#8B6914','201–500'], ['#C2410C','501–1k'], ['#EF4444','1k–3k'], ['#7F1D1D','3k+'],
+  ].map(([color, label]) =>
+    `<div class="legend-row"><div class="legend-swatch" style="background:${color}"></div><span>${label}</span></div>`
+  ).join('');
+  syncLegendVisibility();
+}
 function loadMunicipalities()          { /* Task 6 */ }
 function maybeLoadMunicipalities()     { /* Task 6 */ }
 function loadHex()                     { /* Task 7 */ }
@@ -209,7 +276,7 @@ function wirePanelB()                  { /* Task 9 */ }
 async function updateKPIs()            { /* Task 9 */ }
 async function loadAllYearData()       { /* Task 10 */ }
 function wireScrubber()                { /* Task 10 */ }
-function showInsightDistrict()         { /* Task 11 */ }
+function showInsightDistrict(ags, name, count) { console.log('district click', ags, name, count); }
 function showInsightHex()              { /* Task 11 */ }
 
 // ── Init ───────────────────────────────────────────────────────────────────
