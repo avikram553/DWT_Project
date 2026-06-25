@@ -340,13 +340,6 @@ function getParticipantIcon(acc) {
   return '💥';
 }
 
-function clusterColor(leaves) {
-  const cats = leaves.map(l => l.properties.category);
-  if (cats.includes(1)) return '#7F1D1D';
-  if (cats.includes(2)) return '#EF4444';
-  return '#C2410C';
-}
-
 function renderSinglePoint(acc) {
   const icon = getParticipantIcon(acc);
   const marker = L.marker([acc.lat, acc.lon], {
@@ -371,40 +364,8 @@ async function loadPoints() {
   try { res = await apiFetch(url); } catch { return; }
   const accidents = res.results;
 
-  const z = map.getZoom();
-  const useCluster = z < 14;
-
-  if (useCluster) {
-    const sc = new Supercluster({ radius: 30, maxZoom: 16 });
-    sc.load(accidents.map(a => ({
-      type: 'Feature',
-      properties: { category: a.category, acc: a },
-      geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
-    })));
-    const bounds = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-    for (const c of sc.getClusters(bounds, Math.floor(z))) {
-      const [lon, lat] = c.geometry.coordinates;
-      if (c.properties.cluster) {
-        const count  = c.properties.point_count;
-        const leaves = sc.getLeaves(c.properties.cluster_id, Infinity);
-        const color  = clusterColor(leaves);
-        const size   = Math.min(40 + count * 0.5, 60);
-        L.marker([lat, lon], {
-          icon: L.divIcon({
-            className: '',
-            html: `<div class="cluster-marker" style="width:${size}px;height:${size}px;background:${color}">${count}</div>`,
-            iconSize: [size, size], iconAnchor: [size/2, size/2],
-          }),
-        }).on('click', () => map.setZoom(map.getZoom() + 1)).addTo(layers.accidents);
-      } else {
-        const acc = c.properties.acc;
-        renderSinglePoint(acc).addTo(layers.accidents);
-      }
-    }
-  } else {
-    for (const acc of accidents) {
-      renderSinglePoint(acc).addTo(layers.accidents);
-    }
+  for (const acc of accidents) {
+    renderSinglePoint(acc).addTo(layers.accidents);
   }
 
   updateDynamicStat(accidents.length.toLocaleString('en-US'), 'in viewport');
