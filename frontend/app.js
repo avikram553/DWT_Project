@@ -6,7 +6,7 @@ const state = {
   year: 2024,
   participant: '',      // '' | 'car' | 'bike' | 'pedestrian' | 'truck'
   category: '',         // '' | '2' | '1'
-  mode: 'auto',         // 'auto' | 'district' | 'hex' | 'point'
+  mode: 'auto',         // 'auto' | 'district' | 'hex'
   activeLayer: 'choropleth',
   lastSwitchZoom: 6,
   playInterval: null,
@@ -82,7 +82,6 @@ map.on('move', () => deckInstance.setProps({ viewState: getDeckViewState() }));
 const layers = {
   choropleth:     L.layerGroup().addTo(map),
   municipalities: L.layerGroup(),
-  accidents:      L.layerGroup().addTo(map),
 };
 
 // ── API helper ─────────────────────────────────────────────────────────────
@@ -94,12 +93,10 @@ async function apiFetch(path) {
 
 // ── Zoom state machine ─────────────────────────────────────────────────────
 const ZOOM_HEX   = 8;
-const ZOOM_POINT = 12;
 const HYSTERESIS = 0.5;
 
 function targetLayerForZoom(z) {
-  if (z >= ZOOM_POINT) return 'point';
-  if (z >= ZOOM_HEX)   return 'hex';
+  if (z >= ZOOM_HEX) return 'hex';
   return 'choropleth';
 }
 
@@ -116,9 +113,6 @@ function switchLayer(name) {
     deckCanvas.classList.remove('hex-active');
     deckInstance.setProps({ layers: [] });
   }
-  if (state.activeLayer === 'point') {
-    layers.accidents.clearLayers();
-  }
   if (state.activeLayer === 'choropleth' && name !== 'choropleth') {
     map.removeLayer(layers.choropleth);
   }
@@ -134,8 +128,6 @@ function switchLayer(name) {
     deckCanvas.style.opacity = '1';
     deckCanvas.classList.add('hex-active');
     loadHex();
-  } else if (name === 'point') {
-    loadPoints();
   }
 }
 
@@ -153,8 +145,7 @@ function onZoomEnd() {
   }
 
   // Hysteresis: switching to a lower-density layer requires 0.5 zoom drop
-  const movingToLower = (state.activeLayer === 'point' && target !== 'point') ||
-                        (state.activeLayer === 'hex'   && target === 'choropleth');
+  const movingToLower = state.activeLayer === 'hex' && target === 'choropleth';
   if (movingToLower && Math.abs(z - state.lastSwitchZoom) < HYSTERESIS) return;
 
   state.lastSwitchZoom = z;
@@ -166,9 +157,7 @@ map.on('zoomend', onZoomEnd);
 function updateZoomBadge(layer) {
   const el = document.getElementById('zoom-badge');
   if (!el) return;
-  el.textContent = layer === 'hex' ? '⬡ Hex View'
-                 : layer === 'point' ? '📍 Point View'
-                 : '🗺️ District View';
+  el.textContent = layer === 'hex' ? '⬡ Hex View' : '🗺️ District View';
 }
 
 function updateDynamicStat(val, lbl) {
@@ -180,8 +169,7 @@ function updateDynamicStat(val, lbl) {
 // ── Reload active layer on filter / year change ───────────────────────────
 function reloadActiveLayer() {
   if (state.activeLayer === 'choropleth') loadChoropleth();
-  else if (state.activeLayer === 'hex')   loadHex();
-  else                                     loadPoints();
+  else                                    loadHex();
   updateKPIs();
 }
 
@@ -190,8 +178,7 @@ let moveendTimer = null;
 map.on('moveend', () => {
   clearTimeout(moveendTimer);
   moveendTimer = setTimeout(() => {
-    if (state.activeLayer === 'hex')   loadHex();
-    if (state.activeLayer === 'point') loadPoints();
+    if (state.activeLayer === 'hex') loadHex();
   }, 500);
 });
 
@@ -332,111 +319,6 @@ async function loadHex() {
   updateDynamicStat(`⬡ ${data.length.toLocaleString('en-US')}`, 'in viewport');
 }
 
-function getParticipantIcon(acc) {
-  if (acc.participant_bike)       return '🚲';
-  if (acc.participant_pedestrian) return '🚶';
-  if (acc.participant_truck)      return '🚛';
-  if (acc.participant_car)        return '🚗';
-  return '💥';
-}
-
-function clusterColor(leaves) {
-  const cats = leaves.map(l => l.properties.category);
-  if (cats.includes(1)) return '#7F1D1D';
-  if (cats.includes(2)) return '#EF4444';
-  return '#C2410C';
-}
-
-function renderSinglePoint(acc) {
-  const icon = getParticipantIcon(acc);
-  const marker = L.marker([acc.lat, acc.lon], {
-    icon: L.divIcon({
-      className: '',
-      html: `<div class="acc-icon">${icon}</div>`,
-      iconSize: [20, 20], iconAnchor: [10, 10],
-    }),
-  });
-  marker.on('click', () => showDetailCard(acc, [acc.lat, acc.lon]));
-  return marker;
-}
-
-async function loadPoints() {
-  layers.accidents.clearLayers();
-  const b = map.getBounds();
-  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}&limit=5000`;
-  if (state.category)    url += `&category=${state.category}`;
-  if (state.participant) url += `&participant=${state.participant}`;
-
-  let res;
-  try { res = await apiFetch(url); } catch { return; }
-  const accidents = res.results;
-
-  const z = map.getZoom();
-  const useCluster = z < 14;
-
-  if (useCluster) {
-    const sc = new Supercluster({ radius: 30, maxZoom: 16 });
-    sc.load(accidents.map(a => ({
-      type: 'Feature',
-      properties: { category: a.category, acc: a },
-      geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
-    })));
-    const bounds = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-    for (const c of sc.getClusters(bounds, Math.floor(z))) {
-      const [lon, lat] = c.geometry.coordinates;
-      if (c.properties.cluster) {
-        const count  = c.properties.point_count;
-        const leaves = sc.getLeaves(c.properties.cluster_id, Infinity);
-        const color  = clusterColor(leaves);
-        const size   = Math.min(40 + count * 0.5, 60);
-        L.marker([lat, lon], {
-          icon: L.divIcon({
-            className: '',
-            html: `<div class="cluster-marker" style="width:${size}px;height:${size}px;background:${color}">${count}</div>`,
-            iconSize: [size, size], iconAnchor: [size/2, size/2],
-          }),
-        }).on('click', () => map.setZoom(map.getZoom() + 1)).addTo(layers.accidents);
-      } else {
-        const acc = c.properties.acc;
-        renderSinglePoint(acc).addTo(layers.accidents);
-      }
-    }
-  } else {
-    for (const acc of accidents) {
-      renderSinglePoint(acc).addTo(layers.accidents);
-    }
-  }
-
-  updateDynamicStat(accidents.length.toLocaleString('en-US'), 'in viewport');
-}
-
-function showDetailCard(acc, latlng) {
-  const sevLabel = acc.category === 1 ? 'Fatal' : acc.category === 2 ? 'Serious' : 'Minor';
-  const sevClass = acc.category === 1 ? 'fatal' : acc.category === 2 ? 'serious' : 'minor';
-
-  const parts = [];
-  if (acc.participant_car)        parts.push('Car');
-  if (acc.participant_bike)       parts.push('Bike');
-  if (acc.participant_pedestrian) parts.push('Pedestrian');
-  if (acc.participant_truck)      parts.push('Truck');
-  if (acc.participant_moped)      parts.push('Moped');
-
-  const year = acc.year || '—';
-
-  L.popup({ className: 'detail-card', closeButton: true, maxWidth: 280 })
-    .setLatLng(latlng)
-    .setContent(`
-      <div class="card-header">
-        <span class="card-severity card-severity--${sevClass}">${sevLabel}</span>
-        <span class="card-datetime">${year}</span>
-      </div>
-      <div class="card-body">
-        ${acc.region_name ? `<div>${acc.region_name}</div>` : ''}
-        ${parts.length ? `<div style="color:#9CA3AF;font-size:12px">${parts.join(', ')}</div>` : ''}
-      </div>
-    `)
-    .openOn(map);
-}
 
 function wirePanelA() {
   const btn      = document.getElementById('panel-a-btn');
@@ -458,8 +340,8 @@ function wirePanelA() {
       if (state.mode === 'auto') {
         switchLayer(targetLayerForZoom(map.getZoom()));
       } else {
-        const nameMap = { district: 'choropleth', hex: 'hex', point: 'point' };
-        switchLayer(nameMap[state.mode]);
+        const nameMap = { district: 'choropleth', hex: 'hex' };
+        switchLayer(nameMap[state.mode] || 'choropleth');
       }
     });
   });

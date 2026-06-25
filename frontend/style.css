@@ -166,40 +166,6 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 }
 .insight-stat-val { font-family: monospace; color: var(--text-primary); }
 
-/* ── Detail Card (Leaflet popup override) ── */
-.detail-card .leaflet-popup-content-wrapper {
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  max-width: 280px; padding: 0; color: var(--text-primary);
-}
-.detail-card .leaflet-popup-tip-container { display: none; }
-.detail-card .leaflet-popup-content { margin: 0; }
-.card-header {
-  padding: 10px 14px; border-bottom: 1px solid var(--border-subtle);
-  display: flex; justify-content: space-between; align-items: center;
-}
-.card-severity { padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-.card-severity--fatal   { background: var(--accent-red-deep); color: #fff; }
-.card-severity--serious { background: var(--accent-red); color: #fff; }
-.card-severity--minor   { background: var(--accent-warm); color: #fff; }
-.card-datetime { font-size: 12px; color: var(--text-secondary); }
-.card-body { padding: 10px 14px; font-size: 13px; line-height: 1.6; }
-.card-footer { padding: 8px 14px; border-top: 1px solid var(--border-subtle); font-size: 12px; color: var(--text-muted); }
-
-/* ── Fatal Pulse Ring ── */
-@keyframes fatalPulse {
-  0%   { transform: scale(1);   opacity: 0.6; }
-  100% { transform: scale(1.5); opacity: 0; }
-}
-.pulse-ring {
-  position: absolute; border-radius: 50%;
-  border: 2px solid var(--accent-red);
-  animation: fatalPulse 2s ease-out infinite;
-  pointer-events: none;
-}
-
 /* ── Choropleth Legend ── */
 .choropleth-legend {
   position: fixed; bottom: 80px; right: 16px; z-index: 1000;
@@ -220,20 +186,6 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
   white-space: nowrap;
 }
 .district-label::before { display: none; }
-
-/* ── Cluster markers ── */
-.cluster-marker {
-  border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 11px; font-weight: 700;
-  border: 2px solid rgba(255,255,255,0.3); cursor: pointer;
-}
-
-.acc-icon {
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px; line-height: 1; cursor: pointer;
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8));
-  user-select: none;
-}
 
 /* ── API status ── */
 .api-status-wrap { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 1000; }
