@@ -440,23 +440,61 @@ function wirePanelA() {
   });
 }
 
-function wirePanelB() {
-  document.getElementById('filter-participant').addEventListener('click', e => {
-    const btn = e.target.closest('.filter-pill');
+function wireLeftPanel() {
+  // Participant filter
+  document.getElementById('lp-participant').addEventListener('click', e => {
+    const btn = e.target.closest('.lp-pill');
     if (!btn) return;
-    document.querySelectorAll('#filter-participant .filter-pill').forEach(b => b.classList.remove('filter-pill--active'));
-    btn.classList.add('filter-pill--active');
+    document.querySelectorAll('#lp-participant .lp-pill').forEach(b => b.classList.remove('lp-pill--active'));
+    btn.classList.add('lp-pill--active');
     state.participant = btn.dataset.participant;
     reloadActiveLayer();
   });
 
-  document.getElementById('filter-severity').addEventListener('click', e => {
-    const btn = e.target.closest('.filter-pill');
+  // Severity filter
+  document.getElementById('lp-severity').addEventListener('click', e => {
+    const btn = e.target.closest('.lp-pill');
     if (!btn) return;
-    document.querySelectorAll('#filter-severity .filter-pill').forEach(b => b.classList.remove('filter-pill--active'));
-    btn.classList.add('filter-pill--active');
+    document.querySelectorAll('#lp-severity .lp-pill').forEach(b => b.classList.remove('lp-pill--active'));
+    btn.classList.add('lp-pill--active');
     state.category = btn.dataset.category;
     reloadActiveLayer();
+  });
+
+  // City jump → flyTo + force point mode so emoji markers appear
+  document.getElementById('lp-city').addEventListener('change', e => {
+    const val = e.target.value;
+    if (!val) return;
+    const [lat, lon, z] = val.split(',').map(Number);
+    state.mode = 'point';
+    document.querySelectorAll('#panel-a-dropdown .mode-option').forEach(o => o.classList.remove('mode-option--active'));
+    document.querySelector('#panel-a-dropdown [data-mode="point"]').classList.add('mode-option--active');
+    switchLayer('point');
+    map.flyTo([lat, lon], z, { duration: 1.2 });
+    setTimeout(() => { e.target.value = ''; }, 1200);
+  });
+
+  // Queries
+  document.querySelectorAll('#lp-queries .lp-query').forEach(card => {
+    const q   = parseInt(card.dataset.q);
+    const btn = card.querySelector('.lp-run');
+    const out = card.querySelector('.lp-result');
+    const yrSel = card.querySelector('.lp-year-sel');
+
+    btn.addEventListener('click', async () => {
+      const yr = yrSel ? parseInt(yrSel.value) : null;
+      btn.textContent = '…'; btn.classList.add('loading');
+      try {
+        const res = await EQ_QUERIES[q](yr);
+        out.innerHTML = formatEqResult(q, res);
+        out.classList.remove('hidden');
+      } catch {
+        out.innerHTML = '<span style="color:#EF4444">Request failed</span>';
+        out.classList.remove('hidden');
+      } finally {
+        btn.textContent = 'Run'; btn.classList.remove('loading');
+      }
+    });
   });
 }
 
@@ -671,73 +709,88 @@ async function showInsightHex(object) {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 const EQ_QUERIES = {
-  1: () => apiFetch('/aggregates/accidents?aggregate=earliest_year'),
-  2: () => apiFetch('/aggregates/accidents?state=SN&year=2023&category=2'),
-  3: () => apiFetch('/aggregates/accidents?state=NW&aggregate=earliest_year'),
-  4: () => apiFetch('/aggregates/accidents?state=MV&aggregate=earliest_year'),
-  5: () => apiFetch('/accidents?state=BE&year=2023&participant=pedestrian'),
-  6: () => apiFetch('/aggregates/accident-rate?denominator=cars_pkw&year=2023&level=district'),
-  7: () => apiFetch('/aggregates/accident-rate/top?level=district&year=2024&severity=fatal&denominator=population&limit=5&min_population=50000'),
+  1: ()    => apiFetch('/aggregates/accidents?aggregate=earliest_year'),
+  // Personal injury = all categories (fatal+serious+slight), no category filter
+  2: (yr)  => apiFetch(`/aggregates/accidents?state=SN&year=${yr}`),
+  3: ()    => apiFetch('/aggregates/accidents?state=NW&aggregate=earliest_year'),
+  4: ()    => apiFetch('/aggregates/accidents?state=MV&aggregate=earliest_year'),
+  5: (yr)  => apiFetch(`/accidents?state=BE&year=${yr}&participant=pedestrian`),
+  // Multi-source: joins accident data with registered car counts
+  6: (yr)  => apiFetch(`/aggregates/accident-rate?denominator=cars_pkw&year=${yr}&level=district`),
+  // Multi-source: joins accident data with population figures
+  7: (yr)  => apiFetch(`/aggregates/accident-rate/top?level=district&year=${yr}&severity=fatal&denominator=population&limit=5&min_population=50000`),
+  // Raw fatal count top-5 (single-source, client-sorted)
+  8: (yr)  => apiFetch(`/aggregates/accidents?level=district&year=${yr}&category=1`),
+  // Bicycle accidents in Dresden (AGS 14612)
+  9: (yr)  => apiFetch(`/accidents?ags=14612&year=${yr}&participant=bike&limit=10000`),
+  // Bonus: zero-accident municipalities in Saxony — cross-references full region list
+  10: async (yr) => {
+    const [regRes, accRes] = await Promise.all([
+      apiFetch('/regions?level=municipality'),
+      apiFetch(`/aggregates/accidents?level=municipality&year=${yr}&state=SN`),
+    ]);
+    const counts = {};
+    for (const r of accRes.results) counts[String(r.region_id)] = r.accident_count;
+    const saxMunis = regRes.results.filter(r => String(r.ags).startsWith('14'));
+    const zero = saxMunis.filter(r => !counts[String(r.ags)]);
+    return { _zero: zero, _total: saxMunis.length };
+  },
 };
 
 function formatEqResult(q, res) {
-  if (q <= 4) {
-    const val = res.data?.earliest_year ?? res.metadata?.total_count
-      ?? (res.results ? res.results.reduce((s, r) => s + (r.accident_count || 0), 0) : '—');
-    return `<div class="eq-result-row"><span>Result</span><span>${val.toLocaleString('en-US')}</span></div>`;
+  const row = (label, val) =>
+    `<div class="lp-result-row"><span>${label}</span><span>${val}</span></div>`;
+
+  if (q === 1 || q === 3 || q === 4) {
+    const yr = res.data?.earliest_year ?? '—';
+    return row('Earliest year', yr);
+  }
+  if (q === 2) {
+    const total = res.metadata?.total_count
+      ?? (res.results || []).reduce((s, r) => s + (r.accident_count || 0), 0);
+    return row('Personal injury accidents', Number(total).toLocaleString('en-US'));
   }
   if (q === 5) {
     const total = res.metadata?.total_count ?? res.results?.length ?? '—';
-    return `<div class="eq-result-row"><span>Pedestrian accidents</span><span>${Number(total).toLocaleString('en-US')}</span></div>`;
+    return row('Pedestrian accidents', Number(total).toLocaleString('en-US'));
   }
   if (q === 6) {
     return (res.results || []).slice(0, 5).map(r =>
-      `<div class="eq-result-row"><span>${r.name}</span><span>${r.rate_per_100k ?? '—'}</span></div>`
+      row(r.name, `${r.rate_per_100k ?? '—'} / 100k`)
     ).join('');
   }
   if (q === 7) {
     return (res.results || []).map(r =>
-      `<div class="eq-result-row"><span>${r.rank}. ${r.name}</span><span>${r.rate_per_100k ?? '—'}</span></div>`
+      row(`${r.rank}. ${r.name}`, `${r.rate_per_100k ?? '—'} / 100k`)
     ).join('');
+  }
+  if (q === 8) {
+    const top5 = (res.results || [])
+      .sort((a, b) => (b.accident_count || 0) - (a.accident_count || 0))
+      .slice(0, 5);
+    return top5.map((r, i) =>
+      row(`${i + 1}. ${r.name || r.region_id}`, (r.accident_count || 0).toLocaleString('en-US'))
+    ).join('');
+  }
+  if (q === 9) {
+    const total = res.metadata?.total_count ?? res.results?.length ?? '—';
+    return row('Bicycle accidents', Number(total).toLocaleString('en-US'));
+  }
+  if (q === 10) {
+    const count = res._zero?.length ?? '—';
+    const sample = (res._zero || []).slice(0, 3).map(r => r.name).join(', ');
+    return row(`Zero-accident municipalities`, `${count} / ${res._total}`) +
+      (sample ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">${sample}${res._zero?.length > 3 ? '…' : ''}</div>` : '');
   }
   return '';
 }
 
-function wireExaminerPanel() {
-  const toggle = document.getElementById('examiner-toggle');
-  const body   = document.getElementById('examiner-body');
-  toggle.addEventListener('click', () => {
-    body.classList.toggle('hidden');
-    toggle.classList.toggle('collapsed');
-    toggle.textContent = body.classList.contains('hidden') ? '▸' : '▾';
-  });
-
-  document.querySelectorAll('.eq-card').forEach(card => {
-    const q   = parseInt(card.dataset.q);
-    const btn = card.querySelector('.eq-run');
-    const out = card.querySelector('.eq-result');
-    btn.addEventListener('click', async () => {
-      btn.textContent = '…'; btn.classList.add('loading');
-      try {
-        const res = await EQ_QUERIES[q]();
-        out.innerHTML = formatEqResult(q, res);
-        out.classList.remove('hidden');
-      } catch {
-        out.innerHTML = '<span style="color:#EF4444">Request failed</span>';
-        out.classList.remove('hidden');
-      } finally {
-        btn.textContent = 'Run'; btn.classList.remove('loading');
-      }
-    });
-  });
-}
 
 async function init() {
   await checkApiStatus();
   wirePanelA();
-  wirePanelB();
+  wireLeftPanel();
   wireScrubber();
-  wireExaminerPanel();
   document.getElementById('insight-close').addEventListener('click', closeInsightPanel);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInsightPanel(); });
   await Promise.all([loadChoropleth(), updateKPIs(), loadAllYearData()]);

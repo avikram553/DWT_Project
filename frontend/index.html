@@ -24,21 +24,6 @@
   </div>
 </div>
 
-<!-- PANEL B: Filters (bottom-left) -->
-<div id="panel-b" class="float-panel panel-b">
-  <div id="filter-participant" class="filter-row">
-    <button class="filter-pill filter-pill--active" data-participant="">All</button>
-    <button class="filter-pill" data-participant="car">🚗 Car</button>
-    <button class="filter-pill" data-participant="bike">🚲 Bike</button>
-    <button class="filter-pill" data-participant="pedestrian">🚶 Foot</button>
-    <button class="filter-pill" data-participant="truck">🚛 Truck</button>
-  </div>
-  <div id="filter-severity" class="filter-row">
-    <button class="filter-pill filter-pill--active" data-category="">All Severities</button>
-    <button class="filter-pill" data-category="2">Serious</button>
-    <button class="filter-pill" data-category="1">Fatal</button>
-  </div>
-</div>
 
 <!-- PANEL C: Stats strip (top-right) -->
 <div id="panel-c" class="float-panel panel-c">
@@ -70,54 +55,180 @@
   </div>
 </div>
 
-<!-- EXAMINER PANEL (right, below stats) -->
-<div id="examiner-panel" class="examiner-panel">
-  <div class="examiner-header">
-    <span class="examiner-title">Examiner Questions</span>
-    <button id="examiner-toggle" class="examiner-toggle" aria-label="Toggle">▾</button>
+<!-- LEFT CONTROL PANEL -->
+<div id="left-panel" class="left-panel">
+
+  <!-- Participant filter -->
+  <div class="lp-row" id="lp-participant">
+    <button class="lp-pill lp-pill--active" data-participant="">All</button>
+    <button class="lp-pill" data-participant="car">🚗 Car</button>
+    <button class="lp-pill" data-participant="bike">🚲 Bike</button>
+    <button class="lp-pill" data-participant="pedestrian">🚶 Foot</button>
+    <button class="lp-pill" data-participant="truck">🚛 Truck</button>
   </div>
-  <div id="examiner-body" class="examiner-body">
 
-    <div class="eq-card" data-q="1">
-      <p class="eq-question">What is the earliest year with accident data nationwide?</p>
-      <button class="eq-run">Run</button>
-      <div class="eq-result hidden"></div>
+  <!-- Severity filter -->
+  <div class="lp-row" id="lp-severity">
+    <button class="lp-pill lp-pill--active" data-category="">All sev.</button>
+    <button class="lp-pill" data-category="2">Serious</button>
+    <button class="lp-pill" data-category="1">Fatal</button>
+  </div>
+
+  <div class="lp-divider"></div>
+
+  <!-- City jump -->
+  <div class="lp-city-wrap">
+    <select id="lp-city" class="lp-select">
+      <option value="">📍 Jump to city…</option>
+      <option value="52.52,13.405,11">Berlin</option>
+      <option value="53.55,10.0,11">Hamburg</option>
+      <option value="48.137,11.576,12">Munich</option>
+      <option value="50.938,6.96,12">Cologne</option>
+      <option value="50.110,8.682,12">Frankfurt</option>
+      <option value="48.775,9.18,12">Stuttgart</option>
+      <option value="51.225,6.782,12">Düsseldorf</option>
+      <option value="51.514,7.468,12">Dortmund</option>
+      <option value="51.34,12.374,12">Leipzig</option>
+      <option value="51.05,13.738,12">Dresden</option>
+      <option value="52.37,9.73,12">Hannover</option>
+      <option value="49.452,11.077,12">Nuremberg</option>
+      <option value="53.08,8.80,12">Bremen</option>
+      <option value="50.83,12.92,13">Chemnitz</option>
+    </select>
+  </div>
+
+  <div class="lp-divider"></div>
+
+  <!-- Queries -->
+  <div id="lp-queries">
+
+    <div class="lp-query" data-q="1">
+      <p class="lp-q-text">Earliest year with national accident data?</p>
+      <div class="lp-q-bar">
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
     </div>
 
-    <div class="eq-card" data-q="2">
-      <p class="eq-question">How many serious accidents in Saxony (SN) in 2023?</p>
-      <button class="eq-run">Run</button>
-      <div class="eq-result hidden"></div>
+    <div class="lp-query" data-q="2">
+      <p class="lp-q-text">Personal injury accidents in Saxony (SN)</p>
+      <div class="lp-q-bar">
+        <select class="lp-year-sel">
+          <option value="2016">2016</option><option value="2017">2017</option>
+          <option value="2018">2018</option><option value="2019">2019</option>
+          <option value="2020">2020</option><option value="2021">2021</option>
+          <option value="2022">2022</option><option value="2023" selected>2023</option>
+          <option value="2024">2024</option>
+        </select>
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
     </div>
 
-    <div class="eq-card" data-q="3">
-      <p class="eq-question">Earliest accident year in North Rhine-Westphalia (NW)?</p>
-      <button class="eq-run">Run</button>
-      <div class="eq-result hidden"></div>
+    <div class="lp-query" data-q="3">
+      <p class="lp-q-text">Earliest accident year in North Rhine-Westphalia?</p>
+      <div class="lp-q-bar">
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
     </div>
 
-    <div class="eq-card" data-q="4">
-      <p class="eq-question">Earliest accident year in Mecklenburg-Vorpommern (MV)?</p>
-      <button class="eq-run">Run</button>
-      <div class="eq-result hidden"></div>
+    <div class="lp-query" data-q="4">
+      <p class="lp-q-text">Earliest accident year in Mecklenburg-Vorpommern?</p>
+      <div class="lp-q-bar">
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
     </div>
 
-    <div class="eq-card" data-q="5">
-      <p class="eq-question">Pedestrian accidents in Berlin (BE) in 2023?</p>
-      <button class="eq-run">Run</button>
-      <div class="eq-result hidden"></div>
+    <div class="lp-query" data-q="5">
+      <p class="lp-q-text">Pedestrian accidents in Berlin (BE)</p>
+      <div class="lp-q-bar">
+        <select class="lp-year-sel">
+          <option value="2016">2016</option><option value="2017">2017</option>
+          <option value="2018">2018</option><option value="2019">2019</option>
+          <option value="2020">2020</option><option value="2021">2021</option>
+          <option value="2022">2022</option><option value="2023" selected>2023</option>
+          <option value="2024">2024</option>
+        </select>
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
     </div>
 
-    <div class="eq-card" data-q="6">
-      <p class="eq-question">Top districts by accident rate per 100k registered cars (2023)?</p>
-      <button class="eq-run">Run</button>
-      <div class="eq-result hidden"></div>
+    <div class="lp-query" data-q="6">
+      <p class="lp-q-text">Top districts by accident rate per 100k cars</p>
+      <div class="lp-q-bar">
+        <select class="lp-year-sel">
+          <option value="2016">2016</option><option value="2017">2017</option>
+          <option value="2018">2018</option><option value="2019">2019</option>
+          <option value="2020">2020</option><option value="2021">2021</option>
+          <option value="2022">2022</option><option value="2023" selected>2023</option>
+          <option value="2024">2024</option>
+        </select>
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
     </div>
 
-    <div class="eq-card" data-q="7">
-      <p class="eq-question">Top 5 districts — fatal accident rate per 100k population (2024)?</p>
-      <button class="eq-run">Run</button>
-      <div class="eq-result hidden"></div>
+    <div class="lp-query" data-q="7">
+      <p class="lp-q-text">Top 5 districts — fatal rate per 100k population</p>
+      <div class="lp-q-bar">
+        <select class="lp-year-sel">
+          <option value="2016">2016</option><option value="2017">2017</option>
+          <option value="2018">2018</option><option value="2019">2019</option>
+          <option value="2020">2020</option><option value="2021">2021</option>
+          <option value="2022">2022</option><option value="2023">2023</option>
+          <option value="2024" selected>2024</option>
+        </select>
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
+    </div>
+
+    <div class="lp-query" data-q="8">
+      <p class="lp-q-text">Top 5 districts — fatal accident count</p>
+      <div class="lp-q-bar">
+        <select class="lp-year-sel">
+          <option value="2016">2016</option><option value="2017">2017</option>
+          <option value="2018">2018</option><option value="2019">2019</option>
+          <option value="2020">2020</option><option value="2021">2021</option>
+          <option value="2022">2022</option><option value="2023">2023</option>
+          <option value="2024" selected>2024</option>
+        </select>
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
+    </div>
+
+    <div class="lp-query" data-q="9">
+      <p class="lp-q-text">Bicycle accidents in Dresden</p>
+      <div class="lp-q-bar">
+        <select class="lp-year-sel">
+          <option value="2016">2016</option><option value="2017">2017</option>
+          <option value="2018">2018</option><option value="2019">2019</option>
+          <option value="2020">2020</option><option value="2021">2021</option>
+          <option value="2022">2022</option><option value="2023">2023</option>
+          <option value="2024" selected>2024</option>
+        </select>
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
+    </div>
+
+    <div class="lp-query lp-query--bonus" data-q="10">
+      <p class="lp-q-text">Municipalities with zero accidents in Saxony <span class="lp-bonus-tag">bonus</span></p>
+      <div class="lp-q-bar">
+        <select class="lp-year-sel">
+          <option value="2016">2016</option><option value="2017">2017</option>
+          <option value="2018">2018</option><option value="2019">2019</option>
+          <option value="2020">2020</option><option value="2021">2021</option>
+          <option value="2022">2022</option><option value="2023" selected>2023</option>
+          <option value="2024">2024</option>
+        </select>
+        <button class="lp-run">Run</button>
+      </div>
+      <div class="lp-result hidden"></div>
     </div>
 
   </div>
