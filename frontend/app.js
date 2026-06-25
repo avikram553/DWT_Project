@@ -436,9 +436,71 @@ function showDetailCard(acc, latlng) {
     .openOn(map);
 }
 
-function wirePanelA()                  { /* Task 9 */ }
-function wirePanelB()                  { /* Task 9 */ }
-async function updateKPIs()            { /* Task 9 */ }
+function wirePanelA() {
+  const btn      = document.getElementById('panel-a-btn');
+  const dropdown = document.getElementById('panel-a-dropdown');
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    dropdown.classList.toggle('hidden');
+  });
+  document.addEventListener('click', () => dropdown.classList.add('hidden'));
+
+  dropdown.querySelectorAll('.mode-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      state.mode = opt.dataset.mode;
+      dropdown.querySelectorAll('.mode-option').forEach(o => o.classList.remove('mode-option--active'));
+      opt.classList.add('mode-option--active');
+      dropdown.classList.add('hidden');
+
+      if (state.mode === 'auto') {
+        switchLayer(targetLayerForZoom(map.getZoom()));
+      } else {
+        const nameMap = { district: 'choropleth', hex: 'hex', point: 'point' };
+        switchLayer(nameMap[state.mode]);
+      }
+    });
+  });
+}
+
+function wirePanelB() {
+  document.getElementById('filter-participant').addEventListener('click', e => {
+    const btn = e.target.closest('.filter-pill');
+    if (!btn) return;
+    document.querySelectorAll('#filter-participant .filter-pill').forEach(b => b.classList.remove('filter-pill--active'));
+    btn.classList.add('filter-pill--active');
+    state.participant = btn.dataset.participant;
+    reloadActiveLayer();
+  });
+
+  document.getElementById('filter-severity').addEventListener('click', e => {
+    const btn = e.target.closest('.filter-pill');
+    if (!btn) return;
+    document.querySelectorAll('#filter-severity .filter-pill').forEach(b => b.classList.remove('filter-pill--active'));
+    btn.classList.add('filter-pill--active');
+    state.category = btn.dataset.category;
+    reloadActiveLayer();
+  });
+}
+
+async function updateKPIs() {
+  let url = `/aggregates/accidents?year=${state.year}`;
+  if (state.category)    url += `&category=${state.category}`;
+  if (state.participant) url += `&participant=${state.participant}`;
+
+  try {
+    const [res, fatalRes] = await Promise.all([
+      apiFetch(url),
+      apiFetch(`/aggregates/accidents?year=${state.year}&category=1`),
+    ]);
+    const total = res.metadata?.total_count
+      ?? res.results.reduce((s, r) => s + r.accident_count, 0);
+    const fatal = fatalRes.metadata?.total_count
+      ?? fatalRes.results.reduce((s, r) => s + r.accident_count, 0);
+    document.querySelector('#stat-total .stat-num').textContent = total.toLocaleString('en-US');
+    document.querySelector('#stat-fatal .stat-num').textContent = fatal.toLocaleString('en-US');
+  } catch { /* keep dashes */ }
+}
 async function loadAllYearData()       { /* Task 10 */ }
 function wireScrubber()                { /* Task 10 */ }
 function showInsightDistrict(ags, name, count) { console.log('district click', ags, name, count); }
