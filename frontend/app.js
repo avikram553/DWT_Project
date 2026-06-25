@@ -18,19 +18,19 @@ const YEARS = [2016,2017,2018,2019,2020,2021,2022,2023,2024];
 
 // ── Color scale ────────────────────────────────────────────────────────────
 const SCALE = [
-  { max: 0,        color: '#2D3748' },
-  { max: 50,       color: '#4A4030' },
-  { max: 200,      color: '#6B5B3E' },
-  { max: 500,      color: '#8B6914' },
-  { max: 1000,     color: '#C2410C' },
-  { max: 3000,     color: '#EF4444' },
-  { max: Infinity, color: '#7F1D1D' },
+  { max: 0,        color: '#E5E7EB' },
+  { max: 50,       color: '#FED7AA' },
+  { max: 200,      color: '#FB923C' },
+  { max: 500,      color: '#EA580C' },
+  { max: 1000,     color: '#DC2626' },
+  { max: 3000,     color: '#991B1B' },
+  { max: Infinity, color: '#450A0A' },
 ];
 
 // RGB arrays for deck.gl colorRange (same 7 steps as SCALE)
 const SCALE_RGB = [
-  [45,55,72],[74,64,48],[107,91,62],
-  [139,105,20],[194,65,12],[239,68,68],[127,29,29],
+  [229,231,235],[254,215,170],[251,146,60],
+  [234,88,12],[220,38,38],[153,27,27],[69,10,10],
 ];
 
 function scaleColor(count) {
@@ -47,7 +47,7 @@ const map = L.map('map', {
   zoomAnimation: true,
   attributionControl: false,
 });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '© OpenStreetMap contributors © CARTO',
   subdomains: 'abcd', maxZoom: 19,
 }).addTo(map);
@@ -89,8 +89,12 @@ map.on('move', () => deckInstance.setProps({ viewState: getDeckViewState() }));
 const layers = {
   choropleth:     L.layerGroup().addTo(map),
   municipalities: L.layerGroup(),
+  stateBoundary:  L.layerGroup().addTo(map),
   accidents:      L.layerGroup().addTo(map),
+  hazards:        L.layerGroup().addTo(map),
 };
+
+let districtGeoCache = null;
 
 // ── API helper ─────────────────────────────────────────────────────────────
 async function apiFetch(path) {
@@ -222,7 +226,7 @@ async function loadChoropleth() {
 
   const [countRes, geoRes] = await Promise.all([
     apiFetch(countUrl),
-    apiFetch('/regions?level=district'),
+    districtGeoCache ?? apiFetch('/regions?level=district').then(r => { districtGeoCache = r; return r; }),
   ]);
 
   const lookup = {};
@@ -241,9 +245,9 @@ async function loadChoropleth() {
   L.geoJSON(features, {
     style: feature => ({
       fillColor: scaleColor(lookup[feature.properties.ags] || 0),
-      fillOpacity: 0.75,
-      color: 'rgba(255,255,255,0.08)',
-      weight: 1,
+      fillOpacity: 0.82,
+      color: 'rgba(0,0,0,0.15)',
+      weight: 0.7,
     }),
     onEachFeature: (feature, lyr) => {
       const count = lookup[feature.properties.ags] || 0;
@@ -256,8 +260,8 @@ async function loadChoropleth() {
           permanent: true, className: 'district-label', direction: 'center',
         });
       }
-      lyr.on('mouseover', () => lyr.setStyle({ color: 'rgba(255,255,255,0.25)', weight: 1.5 }));
-      lyr.on('mouseout',  () => lyr.setStyle({ color: 'rgba(255,255,255,0.08)', weight: 1 }));
+      lyr.on('mouseover', () => lyr.setStyle({ color: 'rgba(0,0,0,0.5)', weight: 1.5 }));
+      lyr.on('mouseout',  () => lyr.setStyle({ color: 'rgba(0,0,0,0.15)', weight: 0.7 }));
       lyr.on('click', () => showInsightDistrict(feature.properties.ags, feature.properties.name, count));
     },
   }).addTo(layers.choropleth);
@@ -274,8 +278,8 @@ function renderLegend() {
     document.body.appendChild(el);
   }
   el.innerHTML = [
-    ['#2D3748','0'], ['#4A4030','1–50'], ['#6B5B3E','51–200'],
-    ['#8B6914','201–500'], ['#C2410C','501–1k'], ['#EF4444','1k–3k'], ['#7F1D1D','3k+'],
+    ['#E5E7EB','0'], ['#FED7AA','1–50'], ['#FB923C','51–200'],
+    ['#EA580C','201–500'], ['#DC2626','501–1k'], ['#991B1B','1k–3k'], ['#450A0A','3k+'],
   ].map(([color, label]) =>
     `<div class="legend-row"><div class="legend-swatch" style="background:${color}"></div><span>${label}</span></div>`
   ).join('');
@@ -290,7 +294,7 @@ async function loadMunicipalities() {
     const res = await apiFetch('/regions?level=municipality');
     L.geoJSON(
       res.results.map(r => ({ type: 'Feature', properties: {}, geometry: r.geom })),
-      { style: { fillOpacity: 0, color: 'rgba(255,255,255,0.05)', weight: 0.5 }, interactive: false }
+      { style: { fillOpacity: 0, color: 'rgba(0,0,0,0.1)', weight: 0.4 }, interactive: false }
     ).addTo(layers.municipalities);
   } catch {
     municipalitiesLoaded = false; // allow retry
@@ -305,6 +309,22 @@ function maybeLoadMunicipalities() {
     if (map.hasLayer(layers.municipalities)) map.removeLayer(layers.municipalities);
   }
 }
+
+async function loadStateBoundaries() {
+  try {
+    const res = await apiFetch('/regions?level=state');
+    const features = res.results.map(r => ({
+      type: 'Feature',
+      properties: {},
+      geometry: r.geom,
+    }));
+    L.geoJSON(features, {
+      style: { fillOpacity: 0, color: 'rgba(13,148,136,0.6)', weight: 1.8 },
+      interactive: false,
+    }).addTo(layers.stateBoundary);
+  } catch { /* non-critical */ }
+}
+
 function buildHexLayer(data) {
   return new deck.HexagonLayer({
     id: 'hex-layer',
@@ -709,6 +729,102 @@ async function showInsightHex(object) {
   `);
 }
 
+// ── Nearby Hazards ─────────────────────────────────────────────────────────
+function cellCentroid(cellGeom) {
+  const ring = cellGeom.coordinates[0];
+  const lon = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+  const lat = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  return [lat, lon];
+}
+
+function showToast(msg) {
+  let el = document.getElementById('hazard-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'hazard-toast';
+    el.className = 'hazard-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('hazard-toast--visible');
+  setTimeout(() => el.classList.remove('hazard-toast--visible'), 3000);
+}
+
+function showInsightHazard(zone) {
+  openInsightPanel(`
+    <div class="insight-title">⚠️ Accident Hotspot</div>
+    <div class="insight-subtitle">${zone.region_name || 'Unknown area'}</div>
+    <div class="insight-stat">
+      <span>Accidents (2022–2024)</span>
+      <span class="insight-stat-val">${zone.accident_count}</span>
+    </div>
+    <div class="insight-stat">
+      <span>Distance from you</span>
+      <span class="insight-stat-val">${zone.distance_m} m</span>
+    </div>
+    <div style="margin-top:16px;font-size:12px;color:#EF4444">
+      Be careful in this area.
+    </div>
+  `);
+}
+
+async function loadNearbyHazards() {
+  const btn = document.getElementById('btn-nearby-hazards');
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+  layers.hazards.clearLayers();
+
+  if (!navigator.geolocation) {
+    showToast('Geolocation not supported by your browser.');
+    btn.textContent = '📍 Nearby Hazards';
+    btn.disabled = false;
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      try {
+        const res = await apiFetch(`/zones/nearby-hazards?lat=${lat}&lon=${lon}`);
+        const zones = res.results || [];
+        if (zones.length === 0) {
+          showToast('No accident hotspots within 500 m of your location.');
+        } else {
+          map.flyTo([lat, lon], 15, { duration: 1.2 });
+          for (const zone of zones) {
+            const [clat, clon] = cellCentroid(zone.cell_geom);
+            const marker = L.marker([clat, clon], {
+              icon: L.divIcon({
+                className: '',
+                html: '<div class="hazard-marker"></div>',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+              }),
+            });
+            marker.on('click', () => showInsightHazard(zone));
+            marker.addTo(layers.hazards);
+          }
+        }
+      } catch {
+        showToast('Could not load nearby hazards.');
+      }
+      btn.textContent = '📍 Nearby Hazards';
+      btn.disabled = false;
+    },
+    () => {
+      showToast('Location access denied — allow location in your browser.');
+      btn.textContent = '📍 Nearby Hazards';
+      btn.disabled = false;
+    }
+  );
+}
+
+function wireNearbyHazards() {
+  document.getElementById('btn-nearby-hazards')
+    .addEventListener('click', loadNearbyHazards);
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 const EQ_QUERIES = {
   1: ()    => apiFetch('/aggregates/accidents?aggregate=earliest_year'),
@@ -724,7 +840,7 @@ const EQ_QUERIES = {
   // Raw fatal count top-5 (single-source, client-sorted)
   8: (yr)  => apiFetch(`/aggregates/accidents?level=district&year=${yr}&category=1`),
   // Bicycle accidents in Dresden (AGS 14612)
-  9: (yr)  => apiFetch(`/accidents?ags=14612&year=${yr}&participant=bike&limit=10000`),
+  9: (yr)  => apiFetch(`/accidents?ags=14612&year=${yr}&participant=bike`),
   // Bonus: zero-accident municipalities — uses PostGIS spatial join on backend
   10: (yr, st) => apiFetch(`/aggregates/zero-accident-regions?level=municipality&state=${st}&year=${yr}`),
 };
@@ -787,10 +903,11 @@ async function init() {
   await checkApiStatus();
   wirePanelA();
   wireLeftPanel();
+  wireNearbyHazards();
   wireScrubber();
   document.getElementById('insight-close').addEventListener('click', closeInsightPanel);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInsightPanel(); });
-  await Promise.all([loadChoropleth(), updateKPIs(), loadAllYearData()]);
+  await Promise.all([loadChoropleth(), loadStateBoundaries(), updateKPIs(), loadAllYearData()]);
 }
 
 document.addEventListener('DOMContentLoaded', () => init().catch(console.error));
