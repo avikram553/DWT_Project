@@ -34,9 +34,8 @@ INDICATOR_SOURCES = {
     "population": {
         "table": "12411-01-01-4",
         "url_params": "operation=abruftabelleDownload&selectionname=12411-01-01-4&regionalmerkmal=KREISE&format=CSV",
-        "filename": "population_kreise.csv",
-        "csv_format": "flat",
-        "value_col": 2,
+        "filename": "12411-01-01-4.csv",
+        "csv_format": "population_multi",
         "local_only": True,
     },
     # Two files cover the full range: 2016-2019 + 2020-2025
@@ -152,6 +151,47 @@ def _parse_csv(content: str, indicator_name: str) -> pd.DataFrame:
             if val is not None:
                 records.append({"region_id": ags, "year": int(yr_col), "value": val})
 
+    return pd.DataFrame(records, columns=["region_id", "year", "value"])
+
+
+def _parse_csv_population_multi(content: str) -> pd.DataFrame:
+    """
+    Parse 12411-01-01-4 multi-year population CSV.
+    Row with dates: ;;31.12.2024;31.12.2024;31.12.2024;31.12.2023;...
+    Every 3rd column starting at col 2 is Insgesamt (total population) for that year.
+    """
+    import re
+    sep = ";"
+    lines = content.splitlines()
+    year_cols: list[tuple[int, int]] = []  # (col_index, year)
+
+    for line in lines:
+        parts = line.split(sep)
+        dates = [(i, re.search(r'(\d{4})', p)) for i, p in enumerate(parts)]
+        hits = [(i, int(m.group(1))) for i, m in dates if m and 2000 <= int(m.group(1)) <= 2030]
+        if len(hits) >= 3:
+            year_cols = [(idx, yr) for j, (idx, yr) in enumerate(hits) if j % 3 == 0]
+            break
+
+    if not year_cols:
+        raise ValueError("Could not find year columns in population CSV")
+
+    records = []
+    for line in lines:
+        parts = line.split(sep)
+        ags = parts[0].strip().strip('"')
+        if not (len(ags) == 5 and ags.isdigit() and 1 <= int(ags[:2]) <= 16):
+            continue
+        for col_idx, yr in year_cols:
+            if col_idx >= len(parts):
+                continue
+            val = _clean_value(parts[col_idx])
+            if val is None:
+                continue
+            records.append({"region_id": ags, "year": yr, "value": val})
+
+    if not records:
+        raise ValueError("No valid district rows in population multi-year CSV")
     return pd.DataFrame(records, columns=["region_id", "year", "value"])
 
 
@@ -338,6 +378,8 @@ def run_indicators_etl(db: Session) -> dict:
                     long_df = _parse_csv_long(content, value_col=src.get("value_col", 4))
                 elif fmt == "flat":
                     long_df = _parse_csv_flat(content, value_col=src.get("value_col", 2))
+                elif fmt == "population_multi":
+                    long_df = _parse_csv_population_multi(content)
                 else:
                     long_df = _parse_csv(content, ind_name)
                 db_indicator = src.get("indicator_name", ind_name)
