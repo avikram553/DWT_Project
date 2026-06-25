@@ -119,19 +119,24 @@ function switchLayer(name) {
   if (state.activeLayer === 'point') {
     layers.accidents.clearLayers();
   }
+  if (state.activeLayer === 'choropleth' && name !== 'choropleth') {
+    map.removeLayer(layers.choropleth);
+  }
 
   state.activeLayer = name;
   updateZoomBadge(name);
   syncLegendVisibility();
 
-  if (name === 'hex') {
+  if (name === 'choropleth') {
+    if (!map.hasLayer(layers.choropleth)) map.addLayer(layers.choropleth);
+    loadChoropleth();
+  } else if (name === 'hex') {
     deckCanvas.style.opacity = '1';
     deckCanvas.classList.add('hex-active');
     loadHex();
   } else if (name === 'point') {
     loadPoints();
   }
-  // choropleth: already loaded, nothing to do
 }
 
 function onZoomEnd() {
@@ -327,8 +332,6 @@ async function loadHex() {
   updateDynamicStat(`⬡ ${data.length.toLocaleString('en-US')}`, 'in viewport');
 }
 
-const SEV_BG = { 1: '#7F1D1D', 2: '#EF4444', 3: '#C2410C' };
-
 function getParticipantIcon(acc) {
   if (acc.participant_bike)       return '🚲';
   if (acc.participant_pedestrian) return '🚶';
@@ -345,13 +348,12 @@ function clusterColor(leaves) {
 }
 
 function renderSinglePoint(acc) {
-  const bg   = SEV_BG[acc.category] || SEV_BG[3];
   const icon = getParticipantIcon(acc);
   const marker = L.marker([acc.lat, acc.lon], {
     icon: L.divIcon({
       className: '',
-      html: `<div class="acc-icon" style="background:${bg}">${icon}</div>`,
-      iconSize: [28, 28], iconAnchor: [14, 14],
+      html: `<div class="acc-icon">${icon}</div>`,
+      iconSize: [20, 20], iconAnchor: [10, 10],
     }),
   });
   marker.on('click', () => showDetailCard(acc, [acc.lat, acc.lon]));

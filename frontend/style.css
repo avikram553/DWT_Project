@@ -229,11 +229,10 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 }
 
 .acc-icon {
-  width: 28px; height: 28px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px; line-height: 1;
-  border: 2px solid rgba(255,255,255,0.25); cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  font-size: 18px; line-height: 1; cursor: pointer;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8));
+  user-select: none;
 }
 
 /* ── API status ── */
