@@ -21,6 +21,7 @@ _PARTICIPANT_COL = {
 @router.get("")
 def list_accidents(
     state: str | None = None,
+    ags: str | None = None,
     year: int | None = None,
     category: int | None = None,
     participant: str | None = None,
@@ -40,6 +41,10 @@ def list_accidents(
     """
     conditions = []
     params: dict = {"offset": offset}
+
+    if ags:
+        conditions.append("region_id = :ags")
+        params["ags"] = ags
 
     if state:
         state_prefix = _STATE_CODE.get(state.upper())
