@@ -508,16 +508,20 @@ function wireLeftPanel() {
     const q   = parseInt(card.dataset.q);
     const btn = card.querySelector('.lp-run');
     const out = card.querySelector('.lp-result');
-    const yrSel = card.querySelector('.lp-year-sel');
-    const stSel = card.querySelector('.lp-state-sel');
+    const selects = card.querySelectorAll('select[data-param]');
 
     btn.addEventListener('click', async () => {
-      const yr = yrSel ? parseInt(yrSel.value) : null;
-      const st = stSel ? stSel.value : null;
+      const args = {};
+      const labels = {};
+      selects.forEach(sel => {
+        const key = sel.dataset.param;
+        args[key] = key === 'year' ? parseInt(sel.value) : sel.value;
+        labels[key] = sel.selectedOptions[0]?.textContent ?? '';
+      });
       btn.textContent = '…'; btn.classList.add('loading');
       try {
-        const res = await EQ_QUERIES[q](yr, st);
-        out.innerHTML = formatEqResult(q, res);
+        const res = await EQ_QUERIES[q](args);
+        out.innerHTML = formatEqResult(q, res, labels);
         out.classList.remove('hidden');
       } catch {
         out.innerHTML = '<span style="color:#EF4444">Request failed</span>';
@@ -854,25 +858,31 @@ function wireNearbyHazards() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 const EQ_QUERIES = {
-  1: ()    => apiFetch('/aggregates/accidents?aggregate=earliest_year'),
+  1: ()              => apiFetch('/aggregates/accidents?aggregate=earliest_year'),
   // Personal injury = all categories (fatal+serious+slight), no category filter
-  2: (yr)  => apiFetch(`/aggregates/accidents?state=SN&year=${yr}`),
-  3: ()    => apiFetch('/aggregates/accidents?state=NW&aggregate=earliest_year'),
-  4: ()    => apiFetch('/aggregates/accidents?state=MV&aggregate=earliest_year'),
-  5: (yr)  => apiFetch(`/accidents?state=BE&year=${yr}&participant=pedestrian`),
+  2: ({year})        => apiFetch(`/aggregates/accidents?state=SN&year=${year}`),
+  3: ()              => apiFetch('/aggregates/accidents?state=NW&aggregate=earliest_year'),
+  4: ()              => apiFetch('/aggregates/accidents?state=MV&aggregate=earliest_year'),
+  5: ({year, city})  => apiFetch(`/accidents?ags=${city}&year=${year}&participant=pedestrian`),
   // Multi-source: joins accident data with registered car counts
-  6: (yr)  => apiFetch(`/aggregates/accident-rate?denominator=cars_pkw&year=${yr}&level=district`),
+  6: ({year, state}) => {
+    const stateClause = state ? `&state=${state}` : '';
+    return apiFetch(`/aggregates/accident-rate?denominator=cars_pkw&year=${year}&level=district${stateClause}`);
+  },
   // Multi-source: joins accident data with population figures
-  7: (yr)  => apiFetch(`/aggregates/accident-rate/top?level=district&year=${yr}&severity=fatal&denominator=population&limit=5&min_population=50000`),
+  7: ({year, severity}) => {
+    const sevClause = severity === 'all' ? '' : `&severity=${severity}`;
+    return apiFetch(`/aggregates/accident-rate/top?level=district&year=${year}${sevClause}&denominator=population&limit=5&min_population=50000`);
+  },
   // Raw fatal count top-5 (single-source, client-sorted)
-  8: (yr)  => apiFetch(`/aggregates/accidents?level=district&year=${yr}&category=1`),
-  // Bicycle accidents in Dresden (AGS 14612)
-  9: (yr)  => apiFetch(`/accidents?ags=14612&year=${yr}&participant=bike`),
+  8: ({year})        => apiFetch(`/aggregates/accidents?level=district&year=${year}&category=1`),
+  // Bicycle accidents in selected city + vehicle
+  9: ({year, city, vehicle}) => apiFetch(`/accidents?ags=${city}&year=${year}&participant=${vehicle}`),
   // Bonus: zero-accident municipalities — uses PostGIS spatial join on backend
-  10: (yr, st) => apiFetch(`/aggregates/zero-accident-regions?level=municipality&state=${st}&year=${yr}`),
+  10: ({year, state}) => apiFetch(`/aggregates/zero-accident-regions?level=municipality&state=${state}&year=${year}`),
 };
 
-function formatEqResult(q, res) {
+function formatEqResult(q, res, labels = {}) {
   const row = (label, val) =>
     `<div class="lp-result-row"><span>${label}</span><span>${val}</span></div>`;
 
@@ -887,7 +897,8 @@ function formatEqResult(q, res) {
   }
   if (q === 5) {
     const total = res.metadata?.total_count ?? res.results?.length ?? '—';
-    return row('Pedestrian accidents', Number(total).toLocaleString('en-US'));
+    const city = labels.city || 'Berlin';
+    return row(`Pedestrian accidents in ${city}`, Number(total).toLocaleString('en-US'));
   }
   if (q === 6) {
     const rows6 = (res.results || []).filter(r => r.rate_per_100k != null).slice(0, 5);
@@ -897,7 +908,9 @@ function formatEqResult(q, res) {
   if (q === 7) {
     const rows7 = res.results || [];
     if (!rows7.length) return row('No data', 'indicator_values empty — load Regionalstatistik CSV');
-    return rows7.map(r => row(`${r.rank}. ${r.name}`, `${r.rate_per_100k ?? '—'} / 100k`)).join('');
+    const sev = (labels.severity || '').toLowerCase();
+    const tag = (sev && sev !== 'all') ? ` (${sev})` : '';
+    return rows7.map(r => row(`${r.rank}. ${r.name}${tag}`, `${r.rate_per_100k ?? '—'} / 100k`)).join('');
   }
   if (q === 8) {
     const top5 = (res.results || [])
@@ -909,7 +922,9 @@ function formatEqResult(q, res) {
   }
   if (q === 9) {
     const total = res.metadata?.total_count ?? res.results?.length ?? '—';
-    return row('Bicycle accidents', Number(total).toLocaleString('en-US'));
+    const vehicle = labels.vehicle || 'Bike';
+    const city = labels.city || 'Dresden';
+    return row(`${vehicle} accidents in ${city}`, Number(total).toLocaleString('en-US'));
   }
   if (q === 10) {
     const zero = res.results || [];
