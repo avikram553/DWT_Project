@@ -13,6 +13,9 @@ const state = {
   yearData: {},         // year → {total, fatal, serious, minor}
 };
 
+// ── Years ──────────────────────────────────────────────────────────────────
+const YEARS = [2016,2017,2018,2019,2020,2021,2022,2023,2024];
+
 // ── Color scale ────────────────────────────────────────────────────────────
 const SCALE = [
   { max: 0,        color: '#2D3748' },
@@ -501,8 +504,103 @@ async function updateKPIs() {
     document.querySelector('#stat-fatal .stat-num').textContent = fatal.toLocaleString('en-US');
   } catch { /* keep dashes */ }
 }
-async function loadAllYearData()       { /* Task 10 */ }
-function wireScrubber()                { /* Task 10 */ }
+async function loadAllYearData() {
+  try {
+    const [allRes, fatalRes, seriousRes] = await Promise.all([
+      apiFetch('/aggregates/accidents'),
+      apiFetch('/aggregates/accidents?category=1'),
+      apiFetch('/aggregates/accidents?category=2'),
+    ]);
+
+    const total = {}, fatal = {}, serious = {};
+    for (const r of allRes.results)     total[r.year]   = (total[r.year]   || 0) + r.accident_count;
+    for (const r of fatalRes.results)   fatal[r.year]   = (fatal[r.year]   || 0) + r.accident_count;
+    for (const r of seriousRes.results) serious[r.year] = (serious[r.year] || 0) + r.accident_count;
+
+    for (const y of YEARS) {
+      state.yearData[y] = {
+        total:   total[y]   || 0,
+        fatal:   fatal[y]   || 0,
+        serious: serious[y] || 0,
+        minor:   (total[y] || 0) - (fatal[y] || 0) - (serious[y] || 0),
+      };
+    }
+    renderScrubberSparkline();
+    updateScrubberPlayhead();
+  } catch { /* sparkline stays empty */ }
+}
+
+function renderScrubberSparkline() {
+  const svg = document.getElementById('scrubber-svg');
+  if (!svg) return;
+  const maxTotal = Math.max(...YEARS.map(y => state.yearData[y]?.total || 0), 1);
+  const W = 270, H = 40;
+  const colW = W / YEARS.length;
+  const barW = colW - 2;
+
+  svg.innerHTML = YEARS.map((y, i) => {
+    const d = state.yearData[y] || {};
+    const x = i * colW + 1;
+    const fH = ((d.fatal   || 0) / maxTotal) * H;
+    const sH = ((d.serious || 0) / maxTotal) * H;
+    const mH = ((d.minor   || 0) / maxTotal) * H;
+    let yPos = H;
+    const rects = [];
+    if (mH > 0) { yPos -= mH; rects.push(`<rect x="${x}" y="${yPos}" width="${barW}" height="${mH}" fill="#C2410C"/>`); }
+    if (sH > 0) { yPos -= sH; rects.push(`<rect x="${x}" y="${yPos}" width="${barW}" height="${sH}" fill="#EF4444"/>`); }
+    if (fH > 0) { yPos -= fH; rects.push(`<rect x="${x}" y="${yPos}" width="${barW}" height="${fH}" fill="#7F1D1D"/>`); }
+    return rects.join('');
+  }).join('');
+}
+
+function updateScrubberPlayhead() {
+  const idx = YEARS.indexOf(state.year);
+  const pct = idx / (YEARS.length - 1);
+  const ph = document.getElementById('scrubber-playhead');
+  if (ph) ph.style.left = `${pct * 100}%`;
+
+  document.querySelectorAll('.scrubber-labels span').forEach((s, i) => {
+    s.classList.toggle('active', i === idx);
+  });
+}
+
+function wireScrubber() {
+  const track   = document.getElementById('scrubber-track');
+  const playBtn = document.getElementById('scrubber-play');
+
+  function yearFromClientX(clientX) {
+    const rect = track.getBoundingClientRect();
+    const pct  = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return YEARS[Math.round(pct * (YEARS.length - 1))];
+  }
+
+  function setYear(y) {
+    if (y === state.year) return;
+    state.year = y;
+    updateScrubberPlayhead();
+    reloadActiveLayer();
+    updateKPIs();
+  }
+
+  let dragging = false;
+  document.getElementById('scrubber-playhead').addEventListener('mousedown', () => { dragging = true; });
+  document.addEventListener('mousemove', e => { if (dragging) setYear(yearFromClientX(e.clientX)); });
+  document.addEventListener('mouseup',   () => { dragging = false; });
+  track.addEventListener('click', e => setYear(yearFromClientX(e.clientX)));
+
+  playBtn.addEventListener('click', () => {
+    if (state.playInterval) {
+      clearInterval(state.playInterval);
+      state.playInterval = null;
+      playBtn.textContent = '▶';
+      return;
+    }
+    playBtn.textContent = '⏸';
+    state.playInterval = setInterval(() => {
+      setYear(YEARS[(YEARS.indexOf(state.year) + 1) % YEARS.length]);
+    }, 1500);
+  });
+}
 function showInsightDistrict(ags, name, count) { console.log('district click', ags, name, count); }
 function showInsightHex(object)        { console.log('hex click', object); }
 
