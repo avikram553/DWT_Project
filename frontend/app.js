@@ -338,7 +338,14 @@ async function loadHex() {
   updateDynamicStat(`⬡ ${data.length.toLocaleString('en-US')}`, 'in viewport');
 }
 
+const PARTICIPANT_ICON = { car: '🚗', bike: '🚲', pedestrian: '🚶', truck: '🚛' };
+
 function getParticipantIcon(acc) {
+  // If a filter is active, always show that filter's icon
+  if (state.participant && PARTICIPANT_ICON[state.participant]) {
+    return PARTICIPANT_ICON[state.participant];
+  }
+  // No filter — pick the primary participant from the accident data
   if (acc.participant_bike)       return '🚲';
   if (acc.participant_pedestrian) return '🚶';
   if (acc.participant_truck)      return '🚛';
