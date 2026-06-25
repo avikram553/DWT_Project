@@ -631,7 +631,7 @@ function wireScrubber() {
     playBtn.textContent = '⏸';
     state.playInterval = setInterval(() => {
       setYear(YEARS[(YEARS.indexOf(state.year) + 1) % YEARS.length]);
-    }, 1500);
+    }, 3000);
   });
 }
 // ── Insight panel ──────────────────────────────────────────────────────────
