@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from etl.common import finish_import_run, start_import_run
 
-YEAR_FROM = 2022
+YEAR_FROM = 2016
 YEAR_TO = 2024
 HOTSPOT_MIN = 5
 CELL = 250  # metres, EPSG:25832
