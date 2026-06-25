@@ -22,9 +22,23 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 /* ── Map ── */
 #map { position: fixed; inset: 0; z-index: 0; }
 
-/* Leaflet tile zoom: extend animation duration for fluid feel */
-.leaflet-zoom-animated { transition-duration: 350ms !important; transition-timing-function: cubic-bezier(0.25,0.46,0.45,0.94) !important; }
-.leaflet-fade-anim .leaflet-tile-pane { transition: opacity 300ms ease-out !important; }
+/* Zoom buttons — match glass panel style, sit above zoom badge */
+.leaflet-bottom.leaflet-right { bottom: 72px; right: 16px; }
+.leaflet-control-zoom {
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 10px !important; overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+.leaflet-control-zoom a {
+  background: rgba(17,24,39,0.85) !important;
+  color: #F9FAFB !important; border: none !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+  width: 32px !important; height: 32px !important;
+  line-height: 32px !important; font-size: 16px !important;
+  transition: background 150ms !important;
+}
+.leaflet-control-zoom a:last-child { border-bottom: none !important; }
+.leaflet-control-zoom a:hover { background: rgba(36,52,71,0.95) !important; }
 
 /* ── deck.gl canvas ── */
 #deck-canvas {

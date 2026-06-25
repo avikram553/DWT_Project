@@ -41,16 +41,16 @@ function scaleColor(count) {
 // ── Map ────────────────────────────────────────────────────────────────────
 const map = L.map('map', {
   zoom: 6, center: [51.2, 10.5], zoomControl: false,
-  zoomSnap: 0.25,           // allow fractional zoom levels
-  zoomDelta: 0.5,           // smaller step per button click
-  wheelPxPerZoomLevel: 80,  // more pixels per level = slower, smoother scroll
+  zoomSnap: 0.5,
+  zoomDelta: 0.5,
+  wheelPxPerZoomLevel: 60,
   zoomAnimation: true,
 });
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '© OpenStreetMap contributors © CARTO',
   subdomains: 'abcd', maxZoom: 19,
 }).addTo(map);
-L.control.zoom({ position: 'topright' }).addTo(map);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
 
 // ── deck.gl canvas overlay ─────────────────────────────────────────────────
 const deckCanvas = document.createElement('canvas');
