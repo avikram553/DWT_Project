@@ -11,6 +11,7 @@ const state = {
   lastSwitchZoom: 6,
   playInterval: null,
   yearData: {},         // year → {total, fatal, serious, minor}
+  cityBounds: null,     // {south, north, west, east} when city jump active
 };
 
 // ── Years ──────────────────────────────────────────────────────────────────
@@ -397,8 +398,12 @@ function renderSinglePoint(acc) {
 
 async function loadPoints() {
   layers.accidents.clearLayers();
-  const b = map.getBounds();
-  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}&limit=5000`;
+  const cb = state.cityBounds;
+  const south = cb ? cb.south : map.getBounds().getSouth();
+  const north = cb ? cb.north : map.getBounds().getNorth();
+  const west  = cb ? cb.west  : map.getBounds().getWest();
+  const east  = cb ? cb.east  : map.getBounds().getEast();
+  let url = `/accidents?year=${state.year}&lat_min=${south}&lat_max=${north}&lon_min=${west}&lon_max=${east}&limit=5000`;
   if (state.category)    url += `&category=${state.category}`;
   if (state.participant) url += `&participant=${state.participant}`;
 
@@ -495,6 +500,8 @@ function wireLeftPanel() {
     const val = e.target.value;
     if (!val) return;
     const [lat, lon, z] = val.split(',').map(Number);
+    const r = z >= 13 ? 0.07 : z >= 12 ? 0.14 : 0.28;
+    state.cityBounds = { south: lat - r, north: lat + r, west: lon - r * 1.6, east: lon + r * 1.6 };
     state.mode = 'point';
     document.querySelectorAll('#panel-a-dropdown .mode-option').forEach(o => o.classList.remove('mode-option--active'));
     document.querySelector('#panel-a-dropdown [data-mode="point"]').classList.add('mode-option--active');
@@ -502,6 +509,8 @@ function wireLeftPanel() {
     map.flyTo([lat, lon], z, { duration: 1.2 });
     setTimeout(() => { e.target.value = ''; }, 1200);
   });
+
+  map.on('dragend', () => { state.cityBounds = null; });
 
   // Queries
   document.querySelectorAll('#lp-queries .lp-query').forEach(card => {
