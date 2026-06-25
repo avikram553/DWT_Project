@@ -1,337 +1,89 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-eval' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com https://*.basemaps.cartocdn.com https://nominatim.openstreetmap.org http://localhost:8000 data: blob:;">
-  <title>Unfallkarte Deutschland</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;700&family=IBM+Plex+Sans+Condensed:wght@700&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+  <title>Unfallatlas Deutschland</title>
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- TOP BAR -->
-  <header class="topbar">
-    <span class="logo">Unfallkarte</span>
-    <span class="topbar-title">Deutschland · Unfallatlas 2016–2024</span>
-    <div class="topbar-badges">
-      <span class="badge">dl-de/by-2-0</span>
-      <span class="badge badge--source">Unfallatlas · BKG · Destatis</span>
-      <span class="badge badge--status" id="apiStatus">● Verbinden…</span>
+<!-- MAP -->
+<div id="map"></div>
+
+<!-- PANEL A: Layer Mode (top-left) -->
+<div id="panel-a" class="float-panel panel-a">
+  <button id="panel-a-btn" class="panel-a-btn" aria-label="Layer mode">⬡</button>
+  <div id="panel-a-dropdown" class="panel-a-dropdown hidden">
+    <button class="mode-option mode-option--active" data-mode="auto">Auto <span class="mode-dot"></span></button>
+    <button class="mode-option" data-mode="district">🗺️ District</button>
+    <button class="mode-option" data-mode="hex">⬡ Hex</button>
+    <button class="mode-option" data-mode="point">📍 Point</button>
+  </div>
+</div>
+
+<!-- PANEL B: Filters (bottom-left) -->
+<div id="panel-b" class="float-panel panel-b">
+  <div id="filter-participant" class="filter-row">
+    <button class="filter-pill filter-pill--active" data-participant="">All</button>
+    <button class="filter-pill" data-participant="car">🚗 Car</button>
+    <button class="filter-pill" data-participant="bike">🚲 Bike</button>
+    <button class="filter-pill" data-participant="pedestrian">🚶 Foot</button>
+    <button class="filter-pill" data-participant="truck">🚛 Truck</button>
+  </div>
+  <div id="filter-severity" class="filter-row">
+    <button class="filter-pill filter-pill--active" data-category="">All Severities</button>
+    <button class="filter-pill" data-category="2">Serious+</button>
+    <button class="filter-pill" data-category="1">Fatal</button>
+  </div>
+</div>
+
+<!-- PANEL C: Stats strip (top-right) -->
+<div id="panel-c" class="float-panel panel-c">
+  <span id="stat-total"><span class="stat-num">—</span> <span class="stat-lbl">Accidents</span></span>
+  <span class="stat-sep">·</span>
+  <span id="stat-fatal"><span class="stat-num">—</span> <span class="stat-lbl">Fatal</span></span>
+  <span id="stat-dynamic" class="hidden">
+    <span class="stat-sep">·</span>
+    <span id="stat-dynamic-val" class="stat-num">—</span>
+    <span id="stat-dynamic-lbl" class="stat-lbl">—</span>
+  </span>
+</div>
+
+<!-- Zoom Mode Badge (bottom-right, above attribution) -->
+<div id="zoom-badge" class="zoom-badge">🗺️ District View</div>
+
+<!-- TIMELINE SCRUBBER (bottom-center) -->
+<div id="scrubber" class="scrubber">
+  <button id="scrubber-play" class="scrubber-play" aria-label="Play">▶</button>
+  <div class="scrubber-inner">
+    <svg id="scrubber-svg" class="scrubber-sparkline" viewBox="0 0 270 40" preserveAspectRatio="none"></svg>
+    <div id="scrubber-track" class="scrubber-track">
+      <div id="scrubber-playhead" class="scrubber-playhead"></div>
     </div>
-  </header>
-
-  <!-- DANGER ALERT BANNER (hidden by default) -->
-  <div class="danger-alert" id="dangerAlert">
-    <span class="danger-alert__icon">⚠</span>
-    <span class="danger-alert__text" id="dangerAlertText">Unfallschwerpunkt in der Nähe</span>
-    <button class="danger-alert__close" id="dangerAlertClose">✕</button>
-  </div>
-
-  <!-- MAIN LAYOUT -->
-  <div class="layout">
-
-    <!-- GLASS PANEL -->
-    <aside class="glass-panel" id="panel">
-
-      <!-- LAYERS SECTION -->
-      <section class="panel-section">
-        <h3 class="panel-label">Ebenen</h3>
-        <div class="layer-toggles">
-          <label class="layer-toggle">
-            <input type="checkbox" id="layerChoropleth" checked>
-            <span class="toggle-dot toggle-dot--red"></span>Choropleth (Kreise)
-          </label>
-          <label class="layer-toggle">
-            <input type="checkbox" id="layerHotspots" checked>
-            <span class="toggle-dot toggle-dot--red pulse-small"></span>Unfallschwerpunkte
-          </label>
-          <label class="layer-toggle">
-            <input type="checkbox" id="layerSafeZones" checked>
-            <span class="toggle-dot toggle-dot--teal"></span>Sichere Zonen
-          </label>
-          <label class="layer-toggle">
-            <input type="checkbox" id="layerAccidents">
-            <span class="toggle-dot toggle-dot--amber"></span>Unfallorte (Zoom ≥11)
-          </label>
-        </div>
-      </section>
-
-      <div class="panel-divider"></div>
-
-      <!-- YEAR SLIDER -->
-      <section class="panel-section">
-        <h3 class="panel-label">Jahr: <span id="yearLabel" class="panel-value">2024</span></h3>
-        <input type="range" id="yearSlider" class="year-slider" min="2016" max="2024" value="2024" step="1">
-        <div class="year-ticks">
-          <span>2016</span><span>2020</span><span>2024</span>
-        </div>
-      </section>
-
-      <div class="panel-divider"></div>
-
-      <!-- PARTICIPANT FILTER CHIPS -->
-      <section class="panel-section">
-        <h3 class="panel-label">Beteiligte</h3>
-        <div class="chip-group" id="participantChips">
-          <button class="chip chip--active" data-participant="">Alle</button>
-          <button class="chip" data-participant="car">🚗 Pkw</button>
-          <button class="chip" data-participant="bike">🚲 Rad</button>
-          <button class="chip" data-participant="pedestrian">🚶 Fuß</button>
-          <button class="chip" data-participant="truck">🚛 Lkw</button>
-        </div>
-      </section>
-
-      <!-- SEVERITY FILTER -->
-      <section class="panel-section">
-        <h3 class="panel-label">Schwere</h3>
-        <div class="seg-control" id="severityControl">
-          <button class="seg-btn seg-btn--active" data-category="">Alle</button>
-          <button class="seg-btn" data-category="1,2">Schwer+</button>
-          <button class="seg-btn" data-category="1">Tödlich</button>
-        </div>
-      </section>
-
-      <div class="panel-divider"></div>
-
-      <!-- KPI CARDS -->
-      <section class="panel-section">
-        <div class="kpi-grid">
-          <div class="kpi-card">
-            <span class="kpi-value" id="kpiTotal">—</span>
-            <span class="kpi-label">Unfälle gesamt</span>
-          </div>
-          <div class="kpi-card kpi-card--red">
-            <span class="kpi-value" id="kpiFatal">—</span>
-            <span class="kpi-label">Tödlich</span>
-          </div>
-          <div class="kpi-card kpi-card--teal">
-            <span class="kpi-value" id="kpiHotspots">—</span>
-            <span class="kpi-label">Schwerpunkte</span>
-          </div>
-        </div>
-      </section>
-
-      <div class="panel-divider"></div>
-
-      <!-- YEAR TREND CHART -->
-      <section class="panel-section">
-        <h3 class="panel-label">Verlauf 2016–2024</h3>
-        <div class="chart-wrap">
-          <canvas id="yearChart" height="90"></canvas>
-        </div>
-      </section>
-
-      <div class="panel-divider"></div>
-
-      <!-- HOUR HISTOGRAM -->
-      <section class="panel-section">
-        <h3 class="panel-label">Tagesverlauf (Stunden)</h3>
-        <div class="chart-wrap">
-          <canvas id="hourChart" height="70"></canvas>
-        </div>
-        <p class="panel-hint" id="hourFilterHint"></p>
-      </section>
-
-      <!-- DAY × HOUR HEATGRID -->
-      <section class="panel-section">
-        <h3 class="panel-label">Tag × Stunde</h3>
-        <div class="heatgrid" id="heatgrid">
-          <!-- Filled by JS: 7 rows × 24 cols -->
-        </div>
-        <div class="heatgrid-labels">
-          <span class="hg-day-label">Mo</span>
-          <span class="hg-day-label">Di</span>
-          <span class="hg-day-label">Mi</span>
-          <span class="hg-day-label">Do</span>
-          <span class="hg-day-label">Fr</span>
-          <span class="hg-day-label">Sa</span>
-          <span class="hg-day-label">So</span>
-        </div>
-        <p class="panel-hint" id="heatgridHint"></p>
-      </section>
-
-      <div class="panel-divider"></div>
-
-      <!-- SAFE ROUTE -->
-      <section class="panel-section">
-        <h3 class="panel-label">Routenanalyse</h3>
-        <input type="text" id="routeOrigin" class="route-input" placeholder="Start (z.B. Chemnitz Hbf)">
-        <input type="text" id="routeDestination" class="route-input" placeholder="Ziel (z.B. Dresden Hbf)">
-        <button class="btn btn--primary" id="routeAnalyze">Route analysieren</button>
-        <p class="panel-hint" id="routeResult"></p>
-      </section>
-
-      <div class="panel-divider"></div>
-
-      <!-- EXAMINER Q&A ACCORDION -->
-      <section class="panel-section">
-        <h3 class="panel-label">Prüferfragen</h3>
-        <div class="accordion" id="qaAccordion">
-
-          <div class="acc-item">
-            <button class="acc-header" data-q="1">
-              F1: Frühestes Jahr (Landkreis)?
-              <span class="acc-chevron">›</span>
-            </button>
-            <div class="acc-body hidden" id="qa1">
-              <p class="acc-hint">Wähle einen Landkreis auf der Karte</p>
-              <div class="acc-result" id="qa1Result"></div>
-            </div>
-          </div>
-
-          <div class="acc-item">
-            <button class="acc-header" data-q="2">
-              F2: Unfälle/Jahr nach Region?
-              <span class="acc-chevron">›</span>
-            </button>
-            <div class="acc-body hidden" id="qa2">
-              <div class="acc-result" id="qa2Result"></div>
-            </div>
-          </div>
-
-          <div class="acc-item">
-            <button class="acc-header" data-q="3">
-              F3: Frühestes Jahr (Bundesland)?
-              <span class="acc-chevron">›</span>
-            </button>
-            <div class="acc-body hidden" id="qa3">
-              <select id="qa3StateSelect" class="acc-select">
-                <option value="">— Bundesland wählen —</option>
-                <option value="SH">Schleswig-Holstein</option>
-                <option value="HH">Hamburg</option>
-                <option value="NI">Niedersachsen</option>
-                <option value="HB">Bremen</option>
-                <option value="NW">Nordrhein-Westfalen</option>
-                <option value="HE">Hessen</option>
-                <option value="RP">Rheinland-Pfalz</option>
-                <option value="BW">Baden-Württemberg</option>
-                <option value="BY">Bayern</option>
-                <option value="SL">Saarland</option>
-                <option value="BE">Berlin</option>
-                <option value="BB">Brandenburg</option>
-                <option value="MV">Mecklenburg-Vorpommern</option>
-                <option value="SN">Sachsen</option>
-                <option value="ST">Sachsen-Anhalt</option>
-                <option value="TH">Thüringen</option>
-              </select>
-              <div class="acc-result" id="qa3Result"></div>
-            </div>
-          </div>
-
-          <div class="acc-item">
-            <button class="acc-header" data-q="4">
-              F4: Frühestes Jahr (Gemeinde)?
-              <span class="acc-chevron">›</span>
-            </button>
-            <div class="acc-body hidden" id="qa4">
-              <p class="acc-hint">Wähle eine Gemeinde auf der Karte</p>
-              <div class="acc-result" id="qa4Result"></div>
-            </div>
-          </div>
-
-          <div class="acc-item">
-            <button class="acc-header" data-q="5">
-              F5: Fußgänger Berlin 2023?
-              <span class="acc-chevron">›</span>
-            </button>
-            <div class="acc-body hidden" id="qa5">
-              <button class="btn btn--sm" id="qa5Fetch">Laden</button>
-              <div class="acc-result" id="qa5Result"></div>
-            </div>
-          </div>
-
-          <div class="acc-item">
-            <button class="acc-header" data-q="6">
-              F6: Unfallrate/100.000 EW?
-              <span class="acc-chevron">›</span>
-            </button>
-            <div class="acc-body hidden" id="qa6">
-              <button class="btn btn--sm" id="qa6Fetch">Top-Kreise laden</button>
-              <div class="acc-result" id="qa6Result"></div>
-            </div>
-          </div>
-
-          <div class="acc-item">
-            <button class="acc-header" data-q="7">
-              F7: Top Tödliche Kreise?
-              <span class="acc-chevron">›</span>
-            </button>
-            <div class="acc-body hidden" id="qa7">
-              <button class="btn btn--sm" id="qa7Fetch">Top 5 laden</button>
-              <div class="acc-result" id="qa7Result"></div>
-            </div>
-          </div>
-
-        </div>
-      </section>
-
-      <!-- PANEL FOOTER -->
-      <footer class="panel-footer">
-        <p>Daten: Unfallatlas · BKG VG250 · Regionalstatistik</p>
-        <p>TU Chemnitz · DBW 2026</p>
-      </footer>
-
-    </aside>
-
-    <!-- MAP -->
-    <main id="map"></main>
-
-  </div><!-- /.layout -->
-
-  <!-- RISK GAUGE (floating, bottom-right) -->
-  <div class="risk-gauge hidden" id="riskGauge">
-    <svg class="gauge-svg" viewBox="0 0 100 60" width="120" height="72">
-      <!-- Background arc -->
-      <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1A2535" stroke-width="10" stroke-linecap="round"/>
-      <!-- Score arc (filled by JS) -->
-      <path id="gaugeArc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#2EC4B6" stroke-width="10" stroke-linecap="round" stroke-dasharray="0 126"/>
-      <!-- Score text -->
-      <text id="gaugeScore" x="50" y="50" text-anchor="middle" font-family="IBM Plex Mono" font-size="18" fill="#EDF2F7">0</text>
-    </svg>
-    <p class="gauge-label" id="gaugeLabel">Niedrig</p>
-  </div>
-
-  <!-- DOSSIER CARD (hidden, slides up) -->
-  <div class="dossier" id="dossier">
-    <div class="dossier-header">
-      <span class="dossier-kind" id="dossierKind">HOTSPOT</span>
-      <button class="dossier-close" id="dossierClose">✕</button>
+    <div class="scrubber-labels">
+      <span>2016</span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span>2024</span>
     </div>
-    <div class="dossier-body">
-      <div class="dossier-row">
-        <span class="dossier-label">Unfälle (3 Jahre)</span>
-        <span class="dossier-value mono" id="dossierCount">—</span>
-      </div>
-      <div class="dossier-row">
-        <span class="dossier-label">Region</span>
-        <span class="dossier-value" id="dossierRegion">—</span>
-      </div>
-      <div class="dossier-row">
-        <span class="dossier-label">Koordinaten</span>
-        <span class="dossier-value mono" id="dossierCoords">—</span>
-      </div>
-      <div class="dossier-row">
-        <span class="dossier-label">Zeitraum</span>
-        <span class="dossier-value mono" id="dossierPeriod">—</span>
-      </div>
-    </div>
-    <!-- Mini risk gauge inside dossier -->
-    <div class="dossier-gauge" id="dossierGaugeWrap"></div>
   </div>
+</div>
 
-  <!-- MAP CONTROLS (overlaid on map) -->
-  <div class="map-controls">
-    <button class="map-btn" id="btnGeolocate" title="Meinen Standort finden">⊕</button>
-    <button class="map-btn" id="btnTrack" title="Live-Tracking an/aus">◎</button>
-  </div>
+<!-- INSIGHT PANEL (right slide-out) -->
+<div id="insight-panel" class="insight-panel">
+  <button id="insight-close" class="insight-close" aria-label="Close">✕</button>
+  <div id="insight-content" class="insight-content"></div>
+</div>
 
-  <!-- SCRIPTS -->
-  <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="vendor/chart.js/chart.umd.min.js"></script>
-  <script src="app.js"></script>
+<!-- API status -->
+<div class="api-status-wrap">
+  <span id="api-status" class="api-status">● Connecting…</span>
+</div>
 
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/deck.gl/deck.gl.min.js"></script>
+<script src="vendor/supercluster/supercluster.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
