@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from etl.common import finish_import_run, start_import_run
 
-YEAR_FROM = 2022
+YEAR_FROM = 2016
 YEAR_TO = 2024
 HOTSPOT_MIN = 5
 CELL = 250  # metres, EPSG:25832
@@ -47,8 +47,8 @@ cells AS (
 SELECT
     'hotspot',
     c.cnt,
-    :yr_from::smallint,
-    :yr_to::smallint,
+    CAST(:yr_from AS smallint),
+    CAST(:yr_to AS smallint),
     r.ags,
     c.cell_geom_proj,
     ST_Transform(c.cell_geom_proj, 4326),
@@ -105,8 +105,8 @@ populated_districts AS (
 SELECT
     'safe',
     0::int,
-    :yr_from::smallint,
-    :yr_to::smallint,
+    CAST(:yr_from AS smallint),
+    CAST(:yr_to AS smallint),
     pd.ags,
     sc.cell_geom_proj,
     ST_Transform(sc.cell_geom_proj, 4326),

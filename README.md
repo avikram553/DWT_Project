@@ -1,4 +1,4 @@
-# DBW Final Project — Open Data Integration with Accidents in Germany
+# GeoCrash DE: Spatial Analysis of Traffic Accidents in Germany
 
 TU Chemnitz · Datenbanken und Web-Techniken · Submission: 25.06.2026
 

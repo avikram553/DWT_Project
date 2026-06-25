@@ -89,20 +89,24 @@ def _load_level(
     sf = shapefile.Reader(shp=shp_data, dbf=dbf_data, shx=shx_data)
     fields = [f[0] for f in sf.fields[1:]]  # skip deletion flag
 
-    inserted = updated = 0
+    # VG250 GF field meanings:
+    #   GF=1: sea-only area → always skip
+    #   GF=2: land area, no water → preferred for coastal regions
+    #   GF=3: land + inland water, no sea
+    #   GF=4: total area (land + inland water + sea) → fallback
+    # We collect the lowest-GF geometry per AGS so coastal regions use
+    # land-only shapes instead of shapes that extend into the sea.
+    best: dict[str, dict] = {}  # ags → best record
+
     for shape_rec in sf.iterShapeRecords():
         props = dict(zip(fields, shape_rec.record))
-
-        # Skip non-land areas (GF=4 is the actual land polygon)
-        # For states only — districts and municipalities don't have this issue
         gf = props.get("GF")
-        if level == "state" and gf != 4:
-            continue
+        if gf == 1:
+            continue  # sea-only area, never use
 
         ags = extract_ags(props, level)
         if not ags or len(ags) < 2:
             continue
-
         if shape_rec.shape.shapeType == 0:
             continue
 
@@ -110,16 +114,25 @@ def _load_level(
         if not name:
             continue
 
-        population: int | None = props.get("EWZ")
-        parent = parent_ags_for(ags, level)
+        # Prefer lower GF: land-only (GF=2) beats total-including-sea (GF=4)
+        if ags in best and best[ags]["gf"] <= (gf or 99):
+            continue
 
-        # Convert shapefile geometry to shapely, then reproject
         raw_geom = shapely_shape(shape_rec.shape.__geo_interface__)
         geom_4326 = _reproject_geom(raw_geom)
         if geom_4326.geom_type == "Polygon":
             geom_4326 = MultiPolygon([geom_4326])
-        wkb_hex = geom_4326.wkb_hex
 
+        best[ags] = {
+            "gf": gf or 99,
+            "name": name,
+            "population": props.get("EWZ"),
+            "parent": parent_ags_for(ags, level),
+            "geom_hex": geom_4326.wkb_hex,
+        }
+
+    inserted = updated = 0
+    for ags, data in best.items():
         result = db.execute(
             text(
                 """
@@ -137,11 +150,11 @@ def _load_level(
             ),
             {
                 "ags": ags,
-                "name": name,
+                "name": data["name"],
                 "level": level,
-                "parent": parent,
-                "pop": population,
-                "geom": wkb_hex,
+                "parent": data["parent"],
+                "pop": data["population"],
+                "geom": data["geom_hex"],
                 "run_id": run_id,
             },
         )

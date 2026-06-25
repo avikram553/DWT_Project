@@ -34,12 +34,28 @@ INDICATOR_SOURCES = {
     "population": {
         "table": "12411-01-01-4",
         "url_params": "operation=abruftabelleDownload&selectionname=12411-01-01-4&regionalmerkmal=KREISE&format=CSV",
-        "filename": "population_kreise.csv",
+        "filename": "12411-01-01-4.csv",
+        "csv_format": "population_multi",
+        "local_only": True,
     },
+    # Two files cover the full range: 2016-2019 + 2020-2025
+    # local_only=True: requires manual download (GENESIS needs browser session)
     "cars_pkw": {
-        "table": "46251-01-01-4",
-        "url_params": "operation=abruftabelleDownload&selectionname=46251-01-01-4&regionalmerkmal=KREISE&format=CSV",
-        "filename": "cars_pkw_kreise.csv",
+        "table": "46251-01-03-4",
+        "url_params": "operation=abruftabelleDownload&selectionname=46251-01-03-4&regionalmerkmal=KREISE&format=CSV",
+        "filename": "46251-01-03-4.csv",
+        "csv_format": "long",
+        "value_col": 4,
+        "local_only": True,
+    },
+    "cars_pkw_pre2020": {
+        "table": "46251-01-02-4",
+        "url_params": "operation=abruftabelleDownload&selectionname=46251-01-02-4&regionalmerkmal=KREISE&format=CSV",
+        "filename": "46251-01-02-4.csv",
+        "csv_format": "long",
+        "value_col": 4,
+        "indicator_name": "cars_pkw",
+        "local_only": True,
     },
 }
 
@@ -138,6 +154,111 @@ def _parse_csv(content: str, indicator_name: str) -> pd.DataFrame:
     return pd.DataFrame(records, columns=["region_id", "year", "value"])
 
 
+def _parse_csv_population_multi(content: str) -> pd.DataFrame:
+    """
+    Parse 12411-01-01-4 multi-year population CSV.
+    Row with dates: ;;31.12.2024;31.12.2024;31.12.2024;31.12.2023;...
+    Every 3rd column starting at col 2 is Insgesamt (total population) for that year.
+    """
+    import re
+    sep = ";"
+    lines = content.splitlines()
+    year_cols: list[tuple[int, int]] = []  # (col_index, year)
+
+    for line in lines:
+        parts = line.split(sep)
+        dates = [(i, re.search(r'(\d{4})', p)) for i, p in enumerate(parts)]
+        hits = [(i, int(m.group(1))) for i, m in dates if m and 2000 <= int(m.group(1)) <= 2030]
+        if len(hits) >= 3:
+            year_cols = [(idx, yr) for j, (idx, yr) in enumerate(hits) if j % 3 == 0]
+            break
+
+    if not year_cols:
+        raise ValueError("Could not find year columns in population CSV")
+
+    records = []
+    for line in lines:
+        parts = line.split(sep)
+        ags = parts[0].strip().strip('"')
+        if not (len(ags) == 5 and ags.isdigit() and 1 <= int(ags[:2]) <= 16):
+            continue
+        for col_idx, yr in year_cols:
+            if col_idx >= len(parts):
+                continue
+            val = _clean_value(parts[col_idx])
+            if val is None:
+                continue
+            records.append({"region_id": ags, "year": yr, "value": val})
+
+    if not records:
+        raise ValueError("No valid district rows in population multi-year CSV")
+    return pd.DataFrame(records, columns=["region_id", "year", "value"])
+
+
+def _parse_csv_flat(content: str, value_col: int = 2) -> pd.DataFrame:
+    """
+    Parse single-year flat CSV: AGS in col 0, year embedded in header as DD.MM.YYYY.
+    Used for population_kreise.csv (12411-01-01-4).
+    """
+    import re
+    sep = ";"
+    year = None
+    records = []
+    for line in content.splitlines():
+        parts = line.split(sep)
+        # Find year from date header like "31.12.2024"
+        if year is None:
+            for p in parts:
+                m = re.search(r'\b(\d{4})\b', p.strip())
+                if m and 2000 <= int(m.group(1)) <= 2030:
+                    year = int(m.group(1))
+                    break
+            continue  # header lines: keep scanning until we hit data
+        ags = parts[0].strip().strip('"')
+        if not (len(ags) == 5 and ags.isdigit() and 1 <= int(ags[:2]) <= 16):
+            continue
+        if len(parts) <= value_col:
+            continue
+        val = _clean_value(parts[value_col])
+        if val is None:
+            continue
+        records.append({"region_id": ags, "year": year, "value": val})
+    if not records:
+        raise ValueError("No valid district rows in flat CSV")
+    return pd.DataFrame(records, columns=["region_id", "year", "value"])
+
+
+def _parse_csv_long(content: str, value_col: int = 4) -> pd.DataFrame:
+    """
+    Parse 46251-01-03-4 long-format CSV: one row per Stichtag × district.
+    Col 0 = date (DD.MM.YYYY), col 1 = AGS, col {value_col} = indicator value.
+    Filters to 5-digit district AGS only; extracts year from date.
+    """
+    sep = ";"
+    records = []
+    for line in content.splitlines():
+        parts = line.split(sep)
+        if len(parts) <= value_col:
+            continue
+        date_str = parts[0].strip().strip('"')
+        ags = parts[1].strip().strip('"').strip()
+        # Must be 5-digit district AGS (state prefix 01-16)
+        if not (len(ags) == 5 and ags.isdigit() and 1 <= int(ags[:2]) <= 16):
+            continue
+        # Parse year from "DD.MM.YYYY"
+        try:
+            year = int(date_str.split(".")[-1])
+        except (ValueError, IndexError):
+            continue
+        val = _clean_value(parts[value_col])
+        if val is None:
+            continue
+        records.append({"region_id": ags, "year": year, "value": val})
+    if not records:
+        raise ValueError("No valid district rows in long-format CSV")
+    return pd.DataFrame(records, columns=["region_id", "year", "value"])
+
+
 def _get_indicator_id(db: Session, name: str) -> int:
     row = db.execute(
         text("SELECT id FROM indicators WHERE name = :name"), {"name": name}
@@ -215,19 +336,22 @@ def run_indicators_etl(db: Session) -> dict:
 
     try:
         for ind_name, src in INDICATOR_SOURCES.items():
-            url = f"{_BASE_URL}?{src['url_params']}"
             dest = INDICATOR_DIR / src["filename"]
 
-            print(f"[indicators] Downloading {ind_name} from Regionalstatistik...")
-            try:
-                download_file(url, dest)
-            except Exception as exc:
-                print(
-                    f"[indicators] WARNING: Download failed for {ind_name}: {exc}. "
-                    "Place a pre-downloaded CSV at '{dest}' to proceed."
-                )
+            if src.get("local_only"):
                 if not dest.exists():
+                    print(f"[indicators] SKIP {ind_name}: {dest} not found — place file manually")
                     continue
+                print(f"[indicators] Using local file {dest.name}")
+            else:
+                url = f"{_BASE_URL}?{src['url_params']}"
+                print(f"[indicators] Downloading {ind_name} from Regionalstatistik...")
+                try:
+                    download_file(url, dest)
+                except Exception as exc:
+                    print(f"[indicators] WARNING: Download failed for {ind_name}: {exc}.")
+                    if not dest.exists():
+                        continue
 
             file_hash = sha256_file(dest)
             print(f"[indicators] Parsing {dest.name} (sha256={file_hash[:8]}…)")
@@ -244,9 +368,22 @@ def run_indicators_etl(db: Session) -> dict:
                 print(f"[indicators] Could not decode {dest.name}, skipping")
                 continue
 
+            if content.lstrip().startswith(("<!DOCTYPE", "<html", "<!doctype")):
+                print(f"[indicators] {dest.name} is HTML (needs manual download), skipping")
+                continue
+
             try:
-                long_df = _parse_csv(content, ind_name)
-                indicator_id = _get_indicator_id(db, ind_name)
+                fmt = src.get("csv_format", "wide")
+                if fmt == "long":
+                    long_df = _parse_csv_long(content, value_col=src.get("value_col", 4))
+                elif fmt == "flat":
+                    long_df = _parse_csv_flat(content, value_col=src.get("value_col", 2))
+                elif fmt == "population_multi":
+                    long_df = _parse_csv_population_multi(content)
+                else:
+                    long_df = _parse_csv(content, ind_name)
+                db_indicator = src.get("indicator_name", ind_name)
+                indicator_id = _get_indicator_id(db, db_indicator)
             except Exception as exc:
                 print(f"[indicators] Error for {ind_name}: {exc}, skipping")
                 continue

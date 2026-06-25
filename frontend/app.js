@@ -1,868 +1,964 @@
-// Unfallkarte Deutschland — Interactive JavaScript
-// Pure vanilla JS, no build step. Requires Leaflet 1.9.4 and Chart.js 4.4.4 as globals.
+// Unfallkarte Deutschland — Zoom-Driven Visualization
+'use strict';
 
-const API_BASE = 'http://localhost:8000';
-
-// --- State ---
-let state = {
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
   year: 2024,
-  participant: '',     // '' | 'car' | 'bike' | 'pedestrian' | 'truck'
-  category: '',        // '' | '1,2' | '1'
-  hourFilter: null,    // null | 0-23
-  dayFilter: null,     // null | 1-7 (API day_of_week: 1=Sun,2=Mon..7=Sat)
-  trackingId: null,    // watchPosition ID
-  accidentCache: [],   // cached raw accidents for histogram/heatgrid
-  choroplethData: {},  // region_id → count lookup
-  userLat: null,
-  userLon: null,
+  participant: '',      // '' | 'car' | 'bike' | 'pedestrian' | 'truck'
+  category: '',         // '' | '2' | '1'
+  mode: 'auto',         // 'auto' | 'district' | 'hex' | 'point'
+  activeLayer: 'choropleth',
+  lastSwitchZoom: 6,
+  playInterval: null,
+  yearData: {},         // year → {total, fatal, serious, minor}
+  cityBounds: null,     // {south, north, west, east} when city jump active
 };
 
-// --- Map ---
+// ── Years ──────────────────────────────────────────────────────────────────
+const YEARS = [2016,2017,2018,2019,2020,2021,2022,2023,2024];
+
+// ── Color scale ────────────────────────────────────────────────────────────
+const SCALE = [
+  { max: 0,        color: '#E5E7EB' },
+  { max: 50,       color: '#FED7AA' },
+  { max: 200,      color: '#FB923C' },
+  { max: 500,      color: '#EA580C' },
+  { max: 1000,     color: '#DC2626' },
+  { max: 3000,     color: '#991B1B' },
+  { max: Infinity, color: '#450A0A' },
+];
+
+// RGB arrays for deck.gl colorRange (same 7 steps as SCALE)
+const SCALE_RGB = [
+  [229,231,235],[254,215,170],[251,146,60],
+  [234,88,12],[220,38,38],[153,27,27],[69,10,10],
+];
+
+function scaleColor(count) {
+  for (const s of SCALE) if (count <= s.max) return s.color;
+  return '#7F1D1D';
+}
+
+// ── Map ────────────────────────────────────────────────────────────────────
 const map = L.map('map', {
-  center: [51.1657, 10.4515],  // Germany center
-  zoom: 6,
-  zoomControl: false,
+  zoom: 6, center: [51.2, 10.5], zoomControl: false,
+  zoomSnap: 0.5,
+  zoomDelta: 0.5,
+  wheelPxPerZoomLevel: 60,
+  zoomAnimation: true,
+  attributionControl: false,
+});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap contributors © CARTO',
+  subdomains: 'abcd', maxZoom: 19,
+}).addTo(map);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+// ── deck.gl canvas overlay ─────────────────────────────────────────────────
+const deckCanvas = document.createElement('canvas');
+deckCanvas.id = 'deck-canvas';
+document.getElementById('map').appendChild(deckCanvas);
+
+function getDeckViewState() {
+  const c = map.getCenter();
+  // deck.gl uses 512px tile convention; Leaflet uses 256px → subtract 1 zoom level
+  return { longitude: c.lng, latitude: c.lat, zoom: map.getZoom() - 1, pitch: 30, bearing: 0 };
+}
+
+const deckInstance = new deck.Deck({
+  canvas: deckCanvas,
+  width: '100%',
+  height: '100%',
+  initialViewState: getDeckViewState(),
+  controller: false,
+  layers: [],
+  getTooltip: ({ object }) => {
+    if (!object) return null;
+    const points = object.points || [];
+    const count  = points.length;
+    const fatal  = points.filter(p => p.source && p.source.category === 1).length;
+    return {
+      html: `<div style="background:#1A2332;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;font-size:12px;color:#F9FAFB">${count.toLocaleString('en-US')} accidents · ${fatal} fatal</div>`,
+      style: { padding: '0', background: 'none', border: 'none' },
+    };
+  },
 });
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: 'abcd',
-  maxZoom: 19,
-}).addTo(map);
+map.on('move', () => deckInstance.setProps({ viewState: getDeckViewState() }));
 
-L.control.zoom({ position: 'topright' }).addTo(map);
-
-// --- Layers ---
+// ── Leaflet layer groups ───────────────────────────────────────────────────
 const layers = {
-  choropleth: L.layerGroup().addTo(map),
-  hotspots:   L.layerGroup().addTo(map),
-  safeZones:  L.layerGroup().addTo(map),
-  accidents:  L.layerGroup(),  // NOT added by default
-  route:      L.layerGroup().addTo(map),
-  user:       L.layerGroup().addTo(map),
+  choropleth:     L.layerGroup().addTo(map),
+  municipalities: L.layerGroup(),
+  stateBoundary:  L.layerGroup().addTo(map),
+  accidents:      L.layerGroup().addTo(map),
+  hazards:        L.layerGroup().addTo(map),
 };
 
-// --- API Helpers ---
+let districtGeoCache = null;
+
+// ── API helper ─────────────────────────────────────────────────────────────
 async function apiFetch(path) {
-  const res = await fetch(API_BASE + path);
-  if (!res.ok) throw new Error(`API error ${res.status}`);
+  const res = await fetch(`http://localhost:8000${path}`);
+  if (!res.ok) throw new Error(`${res.status} ${path}`);
   return res.json();
 }
 
-function showApiError(msg) {
-  const el = document.getElementById('apiStatus');
-  el.textContent = '● Fehler';
-  el.className = 'badge badge--status error';
-  console.error(msg);
+// ── Zoom state machine ─────────────────────────────────────────────────────
+const ZOOM_HEX   = 8;
+const ZOOM_POINT = 12;
+const HYSTERESIS = 0.5;
+
+function targetLayerForZoom(z) {
+  if (z >= ZOOM_POINT) return 'point';
+  if (z >= ZOOM_HEX)   return 'hex';
+  return 'choropleth';
 }
 
-// --- Choropleth ---
-async function loadChoropleth() {
-  layers.choropleth.clearLayers();
+function syncLegendVisibility() {
+  const el = document.getElementById('choropleth-legend');
+  if (el) el.classList.toggle('legend-hidden', state.activeLayer !== 'choropleth');
+}
 
-  // Fetch region geometries and accident counts in parallel
-  const regionsPromise = apiFetch('/regions?level=district');
+function restoreDefaultLayers() {
+  if (!map.hasLayer(layers.choropleth))    map.addLayer(layers.choropleth);
+  if (!map.hasLayer(layers.stateBoundary)) map.addLayer(layers.stateBoundary);
+  if (!map.hasLayer(layers.accidents))     map.addLayer(layers.accidents);
+  layers.hazards.clearLayers();
+}
 
-  // Build count URL based on category filter
-  // API only supports single integer for category param.
-  // If '1,2' (Schwer+): omit category to show all (pragmatic fallback — documented).
-  // If '1' (fatal): send category=1.
-  let countUrl = `/aggregates/accidents?level=district&year=${state.year}`;
-  if (state.category === '1') countUrl += '&category=1';
-  // category '1,2' → omit filter (show all accidents, closest available approximation)
+function switchLayer(name) {
+  restoreDefaultLayers();
+  if (state.activeLayer === name) return;
 
-  const [regionsRes, countsRes] = await Promise.all([regionsPromise, apiFetch(countUrl)]);
-  const regions = regionsRes.results;
-
-  // Build lookup: region_id → total accident_count
-  const lookup = {};
-  for (const r of countsRes.results) {
-    lookup[String(r.region_id)] = (lookup[String(r.region_id)] || 0) + r.accident_count;
+  if (state.activeLayer === 'hex') {
+    deckCanvas.style.opacity = '0';
+    deckCanvas.classList.remove('hex-active');
+    deckInstance.setProps({ layers: [] });
   }
-  state.choroplethData = lookup;
-  const maxCount = Math.max(...Object.values(lookup), 1);
-
-  L.geoJSON(
-    {
-      type: 'FeatureCollection',
-      features: regions.map(r => ({
-        type: 'Feature',
-        geometry: r.geom,  // GeoJSON geometry object, used directly
-        properties: { ags: r.ags, name: r.name },
-      })),
-    },
-    {
-      style: (feature) => {
-        const count = lookup[String(feature.properties.ags)] || 0;
-        return {
-          fillColor: choroplethColor(count, maxCount),
-          fillOpacity: 0.65,
-          color: 'rgba(255,255,255,0.15)',
-          weight: 0.5,
-        };
-      },
-      onEachFeature: (feature, layer) => {
-        const count = lookup[String(feature.properties.ags)] || 0;
-        layer.bindTooltip(
-          `<strong>${feature.properties.name}</strong><br>${count.toLocaleString('de-DE')} Unfälle`,
-          { sticky: true }
-        );
-        layer.on('click', () => handleRegionClick(feature.properties.ags, feature.properties.name));
-      },
-    }
-  ).addTo(layers.choropleth);
-}
-
-function choroplethColor(count, max) {
-  // Lerp from surface (#1A2535) at 0 → accent-red (#E84855) at max
-  const t = Math.pow(Math.min(count / max, 1), 0.5);  // sqrt scale so mid-values show
-  const r = Math.round(26  + t * (232 - 26));
-  const g = Math.round(37  + t * (72  - 37));
-  const b = Math.round(53  + t * (85  - 53));
-  return `rgb(${r},${g},${b})`;
-}
-
-// --- Hotspots ---
-async function loadHotspots() {
-  layers.hotspots.clearLayers();
-  const center = map.getCenter();
-  const res = await apiFetch(`/zones/nearest?lat=${center.lat}&lon=${center.lng}&type=hotspot&limit=200`);
-
-  let hotspotCount = 0;
-  for (const zone of res.results) {
-    if (!zone.cell_geom) continue;
-    hotspotCount++;
-    const geojson = typeof zone.cell_geom === 'string' ? JSON.parse(zone.cell_geom) : zone.cell_geom;
-
-    // Get centroid of polygon
-    const coords = geojson.coordinates[0];
-    const lng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
-    const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
-
-    const icon = L.divIcon({
-      className: 'hotspot-marker',
-      iconSize: [12, 12],
-      iconAnchor: [6, 6],
-    });
-
-    L.marker([lat, lng], { icon })
-      .addTo(layers.hotspots)
-      .on('click', () => showDossier(zone));
-
-    // Also draw the cell polygon semi-transparent
-    L.geoJSON(geojson, {
-      style: { fillColor: '#E84855', fillOpacity: 0.12, color: '#E84855', weight: 1, opacity: 0.4 },
-    }).addTo(layers.hotspots).on('click', () => showDossier(zone));
-  }
-
-  // Update KPI hotspot count
-  countUp('kpiHotspots', hotspotCount);
-}
-
-// --- Safe Zones ---
-async function loadSafeZones() {
-  layers.safeZones.clearLayers();
-  const center = map.getCenter();
-  const res = await apiFetch(`/zones/nearest?lat=${center.lat}&lon=${center.lng}&type=safe&limit=150`);
-
-  for (const zone of res.results) {
-    if (!zone.cell_geom) continue;
-    const geojson = typeof zone.cell_geom === 'string' ? JSON.parse(zone.cell_geom) : zone.cell_geom;
-    L.geoJSON(geojson, {
-      style: { fillColor: '#2EC4B6', fillOpacity: 0.25, color: '#2EC4B6', weight: 1, opacity: 0.5 },
-    }).addTo(layers.safeZones).on('click', () => showDossier(zone));
-  }
-}
-
-// --- Accident Dots ---
-map.on('zoomend', () => {
-  if (map.getZoom() >= 11 && document.getElementById('layerAccidents').checked) {
-    loadAccidentDots();
-  } else {
+  if (state.activeLayer === 'point') {
     layers.accidents.clearLayers();
   }
-});
+  if (state.activeLayer === 'choropleth' && name !== 'choropleth') {
+    map.removeLayer(layers.choropleth);
+  }
 
-async function loadAccidentDots() {
-  layers.accidents.clearLayers();
+  state.activeLayer = name;
+  updateZoomBadge(name);
+  syncLegendVisibility();
 
-  let url = `/accidents?limit=500&year=${state.year}`;
-  if (state.participant) url += `&participant=${state.participant}`;
-  if (state.category === '1') url += '&category=1';
-
-  const res = await apiFetch(url);
-  state.accidentCache = res.results;
-  renderHourHistogram();
-  renderHeatgrid();
-
-  const filtered = filterByHourDay(res.results);
-  for (const acc of filtered) {
-    if (!acc.lat || !acc.lon) continue;
-    const color = acc.category === 1 ? '#E84855' : acc.category === 2 ? '#F4A261' : '#7B96B2';
-    L.circleMarker([acc.lat, acc.lon], {
-      radius: 4, fillColor: color, fillOpacity: 0.7, color: 'rgba(255,255,255,0.3)', weight: 0.5,
-    }).addTo(layers.accidents);
+  if (name === 'choropleth') {
+    if (!map.hasLayer(layers.choropleth)) map.addLayer(layers.choropleth);
+    loadChoropleth();
+  } else if (name === 'hex') {
+    deckCanvas.style.opacity = '1';
+    deckCanvas.classList.add('hex-active');
+    loadHex();
+  } else if (name === 'point') {
+    loadPoints();
   }
 }
 
-function filterByHourDay(accidents) {
-  return accidents.filter(acc => {
-    if (state.hourFilter !== null && acc.hour !== state.hourFilter) return false;
-    if (state.dayFilter !== null && acc.day_of_week !== state.dayFilter) return false;
-    return true;
-  });
-}
+function onZoomEnd() {
+  maybeLoadMunicipalities();
+  if (state.mode !== 'auto') return;
 
-// --- KPI Stats ---
-async function updateKPIs() {
-  let url = `/aggregates/accidents?year=${state.year}`;
-  if (state.category === '1') url += '&category=1';
-  const res = await apiFetch(url);
-  const total = res.metadata?.total_count ?? res.results.reduce((s, r) => s + r.accident_count, 0);
+  const z = map.getZoom();
+  const target = targetLayerForZoom(z);
 
-  // Fatal count: always fetch category=1 for kpiFatal
-  const fatalRes = await apiFetch(`/aggregates/accidents?year=${state.year}&category=1`);
-  const fatal = fatalRes.metadata?.total_count ?? fatalRes.results.reduce((s, r) => s + r.accident_count, 0);
-
-  countUp('kpiTotal', total);
-  countUp('kpiFatal', fatal);
-  // kpiHotspots updated in loadHotspots()
-}
-
-function countUp(id, target) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const start = parseInt(el.textContent.replace(/\D/g, '')) || 0;
-  const duration = 600;
-  const startTime = performance.now();
-  const tick = (now) => {
-    const t = Math.min((now - startTime) / duration, 1);
-    el.textContent = Math.round(start + (target - start) * t).toLocaleString('de-DE');
-    if (t < 1) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-}
-
-// --- Year Trend Chart ---
-let yearChart = null;
-
-async function renderYearChart() {
-  const years = [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024];
-  // Fetch all years at once — API returns all years when no year filter is given
-  const res = await apiFetch('/aggregates/accidents');
-
-  // Group by year
-  const byYear = {};
-  for (const r of res.results) {
-    byYear[r.year] = (byYear[r.year] || 0) + r.accident_count;
-  }
-
-  const data = years.map(y => byYear[y] || 0);
-  const ctx = document.getElementById('yearChart').getContext('2d');
-
-  if (yearChart) yearChart.destroy();
-  yearChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: years.map(String),
-      datasets: [{
-        data,
-        backgroundColor: years.map(y => y === state.year ? '#E84855' : 'rgba(232,72,85,0.3)'),
-        borderWidth: 0,
-        borderRadius: 2,
-      }],
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: { label: ctx => ctx.raw.toLocaleString('de-DE') + ' Unfälle' },
-          backgroundColor: '#1A2535', titleColor: '#EDF2F7', bodyColor: '#7B96B2',
-        },
-      },
-      scales: {
-        x: { ticks: { color: '#3D5166', font: { size: 9, family: 'IBM Plex Mono' } }, grid: { display: false } },
-        y: { ticks: { color: '#3D5166', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-      },
-      onClick: (e, elements) => {
-        if (elements.length) {
-          const yr = years[elements[0].index];
-          document.getElementById('yearSlider').value = yr;
-          state.year = yr;
-          document.getElementById('yearLabel').textContent = yr;
-          onYearChange();
-        }
-      },
-    },
-  });
-}
-
-// --- Hour Histogram ---
-let hourChart = null;
-
-function renderHourHistogram() {
-  const counts = new Array(24).fill(0);
-  for (const acc of state.accidentCache) {
-    if (acc.hour != null) counts[acc.hour]++;
-  }
-
-  const ctx = document.getElementById('hourChart').getContext('2d');
-  if (hourChart) hourChart.destroy();
-
-  hourChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: Array.from({ length: 24 }, (_, i) => i + 'h'),
-      datasets: [{
-        data: counts,
-        backgroundColor: counts.map((c, i) => {
-          if (state.hourFilter === i) return '#E84855';
-          const t = counts.length ? c / Math.max(...counts, 1) : 0;
-          return `rgba(46,196,182,${0.2 + t * 0.7})`;
-        }),
-        borderWidth: 0,
-        borderRadius: 1,
-      }],
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: { label: ctx => ctx.raw + ' Unfälle' },
-          backgroundColor: '#1A2535', titleColor: '#EDF2F7', bodyColor: '#7B96B2',
-        },
-      },
-      scales: {
-        x: { ticks: { color: '#3D5166', font: { size: 8, family: 'IBM Plex Mono' } }, grid: { display: false } },
-        y: { ticks: { color: '#3D5166', font: { size: 8 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-      },
-      onClick: (e, elements) => {
-        if (!elements.length) return;
-        const hour = elements[0].index;
-        if (state.hourFilter === hour) {
-          state.hourFilter = null;
-          document.getElementById('hourFilterHint').textContent = '';
-        } else {
-          state.hourFilter = hour;
-          document.getElementById('hourFilterHint').textContent = `Filter: ${hour}:00–${hour}:59`;
-        }
-        if (map.getZoom() >= 11) loadAccidentDots();
-        renderHourHistogram();
-      },
-    },
-  });
-}
-
-// --- Day × Hour Heatgrid ---
-function renderHeatgrid() {
-  const grid = document.getElementById('heatgrid');
-  grid.innerHTML = '';
-
-  // counts[day][hour] where day 0=Mon..6=Sun
-  // API day_of_week: 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri, 7=Sat
-  const counts = Array.from({ length: 7 }, () => new Array(24).fill(0));
-  for (const acc of state.accidentCache) {
-    const dw = acc.day_of_week;
-    if (!dw || acc.hour == null) continue;
-    const dayIdx = dw === 1 ? 6 : dw - 2;  // Convert: Mon(2)=0 .. Sat(7)=5, Sun(1)=6
-    counts[dayIdx][acc.hour]++;
-  }
-
-  const maxCount = Math.max(...counts.flat(), 1);
-
-  for (let d = 0; d < 7; d++) {
-    for (let h = 0; h < 24; h++) {
-      const c = counts[d][h];
-      const opacity = c / maxCount;
-      const cell = document.createElement('div');
-      cell.className = 'heatgrid-cell';
-      cell.style.background = `rgba(232, 72, 85, ${0.05 + opacity * 0.85})`;
-      cell.title = `${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][d]} ${h}:00 — ${c} Unfälle`;
-
-      // Highlight active cell
-      const activeDayIdx = state.dayFilter === null ? -1 : (state.dayFilter === 1 ? 6 : state.dayFilter - 2);
-      if (activeDayIdx === d && state.hourFilter === h) {
-        cell.style.outline = '1px solid #E84855';
-      }
-
-      cell.addEventListener('click', () => {
-        const apiDayOfWeek = d === 6 ? 1 : d + 2;  // reverse convert
-        if (state.dayFilter === apiDayOfWeek && state.hourFilter === h) {
-          state.dayFilter = null;
-          state.hourFilter = null;
-          document.getElementById('heatgridHint').textContent = '';
-        } else {
-          state.dayFilter = apiDayOfWeek;
-          state.hourFilter = h;
-          document.getElementById('heatgridHint').textContent = `Filter: ${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][d]} ${h}:00`;
-        }
-        if (map.getZoom() >= 11) loadAccidentDots();
-        renderHeatgrid();
-      });
-
-      grid.appendChild(cell);
-    }
-  }
-}
-
-// --- Participant Chips ---
-document.getElementById('participantChips').addEventListener('click', e => {
-  const btn = e.target.closest('.chip');
-  if (!btn) return;
-  document.querySelectorAll('#participantChips .chip').forEach(c => c.classList.remove('chip--active'));
-  btn.classList.add('chip--active');
-  state.participant = btn.dataset.participant;
-  onFilterChange();
-});
-
-// --- Severity Toggle ---
-document.getElementById('severityControl').addEventListener('click', e => {
-  const btn = e.target.closest('.seg-btn');
-  if (!btn) return;
-  document.querySelectorAll('#severityControl .seg-btn').forEach(b => b.classList.remove('seg-btn--active'));
-  btn.classList.add('seg-btn--active');
-  state.category = btn.dataset.category;
-  onFilterChange();
-});
-
-// --- Year Slider ---
-const yearSlider = document.getElementById('yearSlider');
-const yearLabel = document.getElementById('yearLabel');
-yearSlider.addEventListener('input', () => {
-  state.year = parseInt(yearSlider.value);
-  yearLabel.textContent = state.year;
-});
-yearSlider.addEventListener('change', onYearChange);
-
-function onYearChange() {
-  loadChoropleth();
-  loadHotspots();
-  loadSafeZones();
-  updateKPIs();
-  renderYearChart();
-}
-
-function onFilterChange() {
-  loadChoropleth();
-  updateKPIs();
-  if (map.getZoom() >= 11) loadAccidentDots();
-}
-
-// --- Layer Toggles ---
-function wireLayerToggle(checkboxId, layerGroup) {
-  document.getElementById(checkboxId).addEventListener('change', e => {
-    if (e.target.checked) map.addLayer(layerGroup);
-    else map.removeLayer(layerGroup);
-  });
-}
-
-wireLayerToggle('layerChoropleth', layers.choropleth);
-wireLayerToggle('layerHotspots', layers.hotspots);
-wireLayerToggle('layerSafeZones', layers.safeZones);
-wireLayerToggle('layerAccidents', layers.accidents);
-
-// --- Geolocation ---
-document.getElementById('btnGeolocate').addEventListener('click', geolocate);
-
-function geolocate() {
-  if (!navigator.geolocation) {
-    alert('Geolokalisierung nicht verfügbar');
+  if (target === state.activeLayer) {
+    // Same layer — reload choropleth so district labels appear/disappear at zoom 7
+    if (state.activeLayer === 'choropleth') loadChoropleth();
     return;
   }
-  navigator.geolocation.getCurrentPosition(
-    pos => handlePosition(pos.coords.latitude, pos.coords.longitude).catch(console.error),
-    () => showApiError('Standort konnte nicht ermittelt werden')
-  );
+
+  // Hysteresis: switching to a lower-density layer requires 0.5 zoom drop
+  const movingToLower = (state.activeLayer === 'point' && target !== 'point') ||
+                        (state.activeLayer === 'hex'   && target === 'choropleth');
+  if (movingToLower && Math.abs(z - state.lastSwitchZoom) < HYSTERESIS) return;
+
+  state.lastSwitchZoom = z;
+  switchLayer(target);
 }
 
-async function handlePosition(lat, lon) {
-  state.userLat = lat;
-  state.userLon = lon;
+map.on('zoomend', onZoomEnd);
 
-  // Fly to location
-  map.flyTo([lat, lon], 14, { duration: 1.5 });
-
-  // Update user dot
-  updateUserDot(lat, lon);
-
-  // Fetch zones around
-  const res = await apiFetch(`/zones/around?lat=${lat}&lon=${lon}`);
-  const { hotspots, safe_zones, your_zone } = res.results;
-
-  // Show dossier for user's zone or nearest hotspot
-  if (your_zone) {
-    showDossier(your_zone);
-  } else if (hotspots && hotspots.length) {
-    showDossier(hotspots[0]);
-  }
-
-  // Risk gauge
-  updateRiskGauge(your_zone, hotspots || []);
-
-  // Danger alert
-  checkDangerAlert(your_zone, hotspots || []);
+function updateZoomBadge(layer) {
+  const el = document.getElementById('zoom-badge');
+  if (!el) return;
+  el.textContent = layer === 'hex' ? '⬡ Hex View'
+                 : layer === 'point' ? '📍 Point View'
+                 : '🗺️ District View';
 }
 
-// --- User Dot ---
-let userMarker = null;
-
-function updateUserDot(lat, lon) {
-  const icon = L.divIcon({ className: 'user-dot', iconSize: [14, 14], iconAnchor: [7, 7] });
-  if (userMarker) {
-    userMarker.setLatLng([lat, lon]);
-  } else {
-    userMarker = L.marker([lat, lon], { icon, zIndexOffset: 1000 }).addTo(layers.user);
-  }
+function updateDynamicStat(val, lbl) {
+  document.getElementById('stat-dynamic').classList.remove('hidden');
+  document.getElementById('stat-dynamic-val').textContent = val;
+  document.getElementById('stat-dynamic-lbl').textContent = lbl;
 }
 
-// --- Risk Gauge ---
-function updateRiskGauge(yourZone, hotspots) {
-  const gauge = document.getElementById('riskGauge');
-  gauge.classList.remove('hidden');
-
-  // Compute score: base 40 if in hotspot zone, +5 per nearby hotspot, max 100
-  let score = 0;
-  if (yourZone && yourZone.kind === 'hotspot') score += 40;
-  score += Math.min(hotspots.length * 5, 60);
-  score = Math.min(100, score);
-
-  // SVG arc: full semicircle = π × r = π × 40 ≈ 125.6
-  const arcLen = 125.6;
-  const dashArray = `${(score / 100) * arcLen} ${arcLen}`;
-
-  const arcEl = document.getElementById('gaugeArc');
-  const scoreEl = document.getElementById('gaugeScore');
-  const labelEl = document.getElementById('gaugeLabel');
-
-  arcEl.style.strokeDasharray = dashArray;
-
-  if (score <= 30) {
-    arcEl.style.stroke = '#2EC4B6';
-    labelEl.textContent = 'Niedrig';
-  } else if (score <= 70) {
-    arcEl.style.stroke = '#F4A261';
-    labelEl.textContent = 'Erhöht';
-  } else {
-    arcEl.style.stroke = '#E84855';
-    labelEl.textContent = 'Kritisch';
-  }
-  scoreEl.textContent = score;
+// ── Reload active layer on filter / year change ───────────────────────────
+function reloadActiveLayer() {
+  if (state.activeLayer === 'choropleth') loadChoropleth();
+  else if (state.activeLayer === 'hex')   loadHex();
+  else                                     loadPoints();
+  updateKPIs();
 }
 
-// --- Danger Alert ---
-function checkDangerAlert(yourZone, hotspots) {
-  const alertEl = document.getElementById('dangerAlert');
-
-  let nearestHotspot = null;
-  let minDist = Infinity;
-
-  if (yourZone && yourZone.kind === 'hotspot') {
-    nearestHotspot = yourZone;
-    minDist = 0;
-  } else {
-    for (const h of hotspots) {
-      if (h.distance_m < minDist) { minDist = h.distance_m; nearestHotspot = h; }
-    }
-  }
-
-  if (nearestHotspot && minDist < 300) {
-    const dist = minDist < 50 ? 'unmittelbar' : `${Math.round(minDist)}m`;
-    document.getElementById('dangerAlertText').textContent =
-      `⚠ Unfallschwerpunkt ${dist === 'unmittelbar' ? 'an diesem Standort' : 'in ' + dist + ' Entfernung'} (${nearestHotspot.accident_count} Unfälle in 3 Jahren)`;
-    alertEl.classList.add('show');
-    setTimeout(() => alertEl.classList.remove('show'), 8000);
-  }
-}
-
-document.getElementById('dangerAlertClose').addEventListener('click', () => {
-  document.getElementById('dangerAlert').classList.remove('show');
-});
-
-// --- Live Tracking ---
-document.getElementById('btnTrack').addEventListener('click', toggleTracking);
-
-function toggleTracking() {
-  const btn = document.getElementById('btnTrack');
-  if (state.trackingId !== null) {
-    navigator.geolocation.clearWatch(state.trackingId);
-    state.trackingId = null;
-    btn.classList.remove('active');
-    btn.title = 'Live-Tracking an/aus';
-  } else {
-    if (!navigator.geolocation) { alert('Geolokalisierung nicht verfügbar'); return; }
-    btn.classList.add('active');
-    btn.title = 'Tracking aktiv — klicken zum Stoppen';
-    let lastUpdate = 0;
-    state.trackingId = navigator.geolocation.watchPosition(
-      pos => {
-        const now = Date.now();
-        updateUserDot(pos.coords.latitude, pos.coords.longitude);
-        if (now - lastUpdate > 5000) {  // refresh zone data every 5 seconds
-          lastUpdate = now;
-          handlePosition(pos.coords.latitude, pos.coords.longitude).catch(console.error);
-        }
-      },
-      err => { if (state.trackingId !== null) toggleTracking(); }  // only if still tracking
-    );
-  }
-}
-
-// --- Safe Route ---
-document.getElementById('routeAnalyze').addEventListener('click', analyzeRoute);
-
-async function analyzeRoute() {
-  const origin = document.getElementById('routeOrigin').value.trim();
-  const dest = document.getElementById('routeDestination').value.trim();
-  if (!origin || !dest) return;
-
-  const resultEl = document.getElementById('routeResult');
-  resultEl.textContent = 'Geocoding…';
-
-  try {
-    const [fromCoord, toCoord] = await Promise.all([
-      geocode(origin), geocode(dest),
-    ]);
-    if (!fromCoord || !toCoord) {
-      resultEl.textContent = 'Ort nicht gefunden';
-      return;
-    }
-
-    // Draw polyline
-    layers.route.clearLayers();
-    const polyline = L.polyline([fromCoord, toCoord], {
-      color: '#F4A261', weight: 3, opacity: 0.8, dashArray: '6 4',
-    }).addTo(layers.route);
-    map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
-
-    // Sample 10 points along the line and check for hotspots
-    const points = sampleLine(fromCoord, toCoord, 10);
-    resultEl.textContent = 'Analysiere Route…';
-
-    // Parallel zone lookups
-    const zoneResults = await Promise.all(
-      points.map(([lat, lon]) => apiFetch(`/zones/around?lat=${lat}&lon=${lon}`).catch(() => null))
-    );
-
-    // Collect unique hotspots along route
-    const hotspotSet = new Set();
-    for (const res of zoneResults) {
-      if (!res) continue;
-      const { hotspots, your_zone } = res.results;
-      if (your_zone && your_zone.kind === 'hotspot') {
-        const key = `${your_zone.region_id}-${your_zone.year_from}`;
-        if (!hotspotSet.has(key)) {
-          hotspotSet.add(key);
-          if (your_zone.cell_geom) {
-            const geojson = typeof your_zone.cell_geom === 'string' ? JSON.parse(your_zone.cell_geom) : your_zone.cell_geom;
-            L.geoJSON(geojson, {
-              style: { fillColor: '#E84855', fillOpacity: 0.3, color: '#E84855', weight: 1 },
-            }).addTo(layers.route);
-          }
-        }
-      }
-      for (const h of (hotspots || [])) {
-        const key = `${h.region_id}-${h.year_from}`;
-        if (!hotspotSet.has(key)) {
-          hotspotSet.add(key);
-          if (h.cell_geom) {
-            const geojson = typeof h.cell_geom === 'string' ? JSON.parse(h.cell_geom) : h.cell_geom;
-            L.geoJSON(geojson, {
-              style: { fillColor: '#E84855', fillOpacity: 0.3, color: '#E84855', weight: 1 },
-            }).addTo(layers.route);
-          }
-        }
-      }
-    }
-
-    const total = hotspotSet.size;
-    resultEl.textContent = total === 0
-      ? '✓ Route kreuzt keine Schwerpunkte'
-      : `⚠ Route kreuzt ${total} Schwerpunkt${total > 1 ? 'e' : ''}`;
-
-    L.marker(fromCoord, { title: origin }).addTo(layers.route);
-    L.marker(toCoord, { title: dest }).addTo(layers.route);
-
-  } catch (e) {
-    resultEl.textContent = 'Fehler bei der Analyse';
-  }
-}
-
-async function geocode(query) {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ' Germany')}&format=json&limit=1`;
-  const res = await fetch(url, { headers: { 'Accept-Language': 'de' } });
-  if (!res.ok) throw new Error(`Nominatim error ${res.status}`);
-  const data = await res.json();
-  if (!data.length) return null;
-  return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-}
-
-function sampleLine(from, to, n) {
-  return Array.from({ length: n }, (_, i) => {
-    const t = i / (n - 1);
-    return [from[0] + t * (to[0] - from[0]), from[1] + t * (to[1] - from[1])];
-  });
-}
-
-// --- Q&A Accordion ---
-document.getElementById('qaAccordion').addEventListener('click', e => {
-  const header = e.target.closest('.acc-header');
-  if (!header) return;
-  const q = header.dataset.q;
-  const body = document.getElementById(`qa${q}`);
-  const isOpen = !body.classList.contains('hidden');
-
-  // Close all
-  document.querySelectorAll('.acc-body').forEach(b => b.classList.add('hidden'));
-  document.querySelectorAll('.acc-header').forEach(h => h.classList.remove('active'));
-
-  if (!isOpen) {
-    body.classList.remove('hidden');
-    header.classList.add('active');
-    fetchQA(parseInt(q));
-  }
-});
-
-async function fetchQA(q) {
-  switch (q) {
-    case 1:
-      document.getElementById('qa1Result').textContent = 'Klicke einen Landkreis auf der Karte';
-      break;
-
-    case 2: {
-      const res = await apiFetch(`/aggregates/accidents?level=district&year=${state.year}&limit=10`);
-      const top = res.results.slice(0, 10);
-      document.getElementById('qa2Result').textContent =
-        top.map(r => `${r.region_name}: ${r.accident_count.toLocaleString('de-DE')}`).join('\n');
-      break;
-    }
-
-    case 3: {
-      const sel = document.getElementById('qa3StateSelect');
-      sel.onchange = async () => {
-        if (!sel.value) return;
-        const res = await apiFetch(`/aggregates/accidents?state=${sel.value}&aggregate=earliest_year`);
-        document.getElementById('qa3Result').textContent = `Frühestes Jahr: ${res.results?.earliest_year ?? '—'}`;
-      };
-      break;
-    }
-
-    case 4:
-      document.getElementById('qa4Result').textContent = 'Klicke eine Gemeinde auf der Karte';
-      break;
-
-    case 5: {
-      document.getElementById('qa5Fetch').onclick = async () => {
-        const res = await apiFetch('/accidents?state=BE&year=2023&participant=pedestrian&limit=1000');
-        document.getElementById('qa5Result').textContent =
-          `${res.results.length} Fußgängerunfälle in Berlin 2023 (erste 1000)`;
-      };
-      break;
-    }
-
-    case 6: {
-      document.getElementById('qa6Fetch').onclick = async () => {
-        const res = await apiFetch('/aggregates/accident-rate?level=district&year=2024&denominator=population');
-        const top5 = res.results.sort((a, b) => b.rate - a.rate).slice(0, 5);
-        document.getElementById('qa6Result').textContent =
-          top5.map(r => `${r.region_name}: ${r.rate?.toFixed(1)} / 100k EW`).join('\n');
-      };
-      break;
-    }
-
-    case 7: {
-      document.getElementById('qa7Fetch').onclick = async () => {
-        const res = await apiFetch('/aggregates/accident-rate/top?level=district&year=2024&severity=fatal&denominator=population&limit=5&min_population=50000');
-        document.getElementById('qa7Result').textContent =
-          res.results.map((r, i) => `${i + 1}. ${r.region_name}: ${r.rate?.toFixed(2)} Tode/100k`).join('\n');
-      };
-      break;
-    }
-  }
-}
-
-// Region click handler — used by choropleth layer and Q1/Q4 accordion answers
-function handleRegionClick(ags, name) {
-  // Update Q1 if open (earliest year for this district's state)
-  const qa1Body = document.getElementById('qa1');
-  if (qa1Body && !qa1Body.classList.contains('hidden')) {
-    apiFetch(`/aggregates/accidents?level=district&aggregate=earliest_year&state=${ags.substring(0, 2)}`).then(res => {
-      document.getElementById('qa1Result').textContent = `${name}\nFrühestes Jahr: ${res.results?.earliest_year ?? '—'}`;
-    });
-  }
-
-  // Update Q4 if open (earliest year for this municipality)
-  const qa4Body = document.getElementById('qa4');
-  if (qa4Body && !qa4Body.classList.contains('hidden')) {
-    apiFetch(`/aggregates/accidents?level=municipality&aggregate=earliest_year&state=${ags.substring(0, 2)}`).then(res => {
-      document.getElementById('qa4Result').textContent = `${name} (${ags})\nFrühestes Jahr: ${res.results?.earliest_year ?? '—'}`;
-    });
-  }
-}
-
-// --- Dossier Card ---
-function showDossier(zone) {
-  const d = document.getElementById('dossier');
-  document.getElementById('dossierKind').textContent = zone.kind === 'hotspot' ? 'SCHWERPUNKT' : 'SICHER';
-  document.getElementById('dossierKind').className = `dossier-kind${zone.kind === 'safe' ? ' safe' : ''}`;
-  document.getElementById('dossierCount').textContent = zone.accident_count?.toLocaleString('de-DE') ?? '—';
-  document.getElementById('dossierRegion').textContent = zone.region_name ?? '—';
-
-  // Centroid from geom
-  let coords = '—';
-  if (zone.cell_geom) {
-    const geojson = typeof zone.cell_geom === 'string' ? JSON.parse(zone.cell_geom) : zone.cell_geom;
-    const pts = geojson.coordinates[0];
-    const lat = (pts.reduce((s, c) => s + c[1], 0) / pts.length).toFixed(4);
-    const lon = (pts.reduce((s, c) => s + c[0], 0) / pts.length).toFixed(4);
-    coords = `${lat}°N, ${lon}°E`;
-  }
-  document.getElementById('dossierCoords').textContent = coords;
-  document.getElementById('dossierPeriod').textContent =
-    zone.year_from && zone.year_to ? `${zone.year_from}–${zone.year_to}` : '—';
-
-  // Add .show class — CSS handles the transform/transition (not removing .hidden)
-  d.classList.add('show');
-}
-
-document.getElementById('dossierClose').addEventListener('click', () => {
-  document.getElementById('dossier').classList.remove('show');
-});
-
-// --- API Status Ping ---
-async function checkApiStatus() {
-  const el = document.getElementById('apiStatus');
-  try {
-    await apiFetch('/metadata/sources');
-    el.textContent = '● Live';
-    el.className = 'badge badge--status live';
-  } catch {
-    el.textContent = '● Offline';
-    el.className = 'badge badge--status error';
-  }
-}
-
-// --- Map moveend Reload (debounced 500ms) ---
+// ── moveend: reload hex/point for new viewport ─────────────────────────────
 let moveendTimer = null;
 map.on('moveend', () => {
   clearTimeout(moveendTimer);
   moveendTimer = setTimeout(() => {
-    if (document.getElementById('layerHotspots').checked) loadHotspots();
-    if (document.getElementById('layerSafeZones').checked) loadSafeZones();
+    if (state.activeLayer === 'hex')   loadHex();
+    if (state.activeLayer === 'point') loadPoints();
   }, 500);
 });
 
-// --- Init ---
+// ── API status ─────────────────────────────────────────────────────────────
+async function checkApiStatus() {
+  const el = document.getElementById('api-status');
+  try {
+    await apiFetch('/metadata/sources');
+    el.textContent = '● Live'; el.className = 'api-status live';
+  } catch {
+    el.textContent = '● Offline'; el.className = 'api-status error';
+  }
+}
+
+// ── Stubs filled by Tasks 5–11 ─────────────────────────────────────────────
+async function loadChoropleth() {
+  layers.choropleth.clearLayers();
+
+  let countUrl = `/aggregates/accidents?level=district&year=${state.year}`;
+  if (state.category)    countUrl += `&category=${state.category}`;
+
+  const [countRes, geoRes] = await Promise.all([
+    apiFetch(countUrl),
+    districtGeoCache ?? apiFetch('/regions?level=district').then(r => { districtGeoCache = r; return r; }),
+  ]);
+
+  const lookup = {};
+  for (const r of countRes.results) {
+    lookup[String(r.region_id)] = (lookup[String(r.region_id)] || 0) + r.accident_count;
+  }
+
+  const features = geoRes.results.map(r => ({
+    type: 'Feature',
+    properties: { ags: String(r.ags), name: r.name },
+    geometry: r.geom,
+  }));
+
+  const showLabels = map.getZoom() >= 7;
+
+  L.geoJSON(features, {
+    style: feature => ({
+      fillColor: scaleColor(lookup[feature.properties.ags] || 0),
+      fillOpacity: 0.82,
+      color: 'rgba(0,0,0,0.15)',
+      weight: 0.7,
+    }),
+    onEachFeature: (feature, lyr) => {
+      const count = lookup[feature.properties.ags] || 0;
+      lyr.bindTooltip(
+        `<strong>${feature.properties.name}</strong><br>${count.toLocaleString('en-US')} accidents`,
+        { sticky: true }
+      );
+      if (showLabels) {
+        lyr.bindTooltip(feature.properties.name, {
+          permanent: true, className: 'district-label', direction: 'center',
+        });
+      }
+      lyr.on('mouseover', () => lyr.setStyle({ color: 'rgba(0,0,0,0.5)', weight: 1.5 }));
+      lyr.on('mouseout',  () => lyr.setStyle({ color: 'rgba(0,0,0,0.15)', weight: 0.7 }));
+      lyr.on('click', () => showInsightDistrict(feature.properties.ags, feature.properties.name, count));
+    },
+  }).addTo(layers.choropleth);
+
+  renderLegend();
+}
+
+function renderLegend() {
+  let el = document.getElementById('choropleth-legend');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'choropleth-legend';
+    el.className = 'choropleth-legend';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = [
+    ['#E5E7EB','0'], ['#FED7AA','1–50'], ['#FB923C','51–200'],
+    ['#EA580C','201–500'], ['#DC2626','501–1k'], ['#991B1B','1k–3k'], ['#450A0A','3k+'],
+  ].map(([color, label]) =>
+    `<div class="legend-row"><div class="legend-swatch" style="background:${color}"></div><span>${label}</span></div>`
+  ).join('');
+  syncLegendVisibility();
+}
+let municipalitiesLoaded = false;
+
+async function loadMunicipalities() {
+  if (municipalitiesLoaded) return;
+  municipalitiesLoaded = true;
+  try {
+    const res = await apiFetch('/regions?level=municipality');
+    L.geoJSON(
+      res.results.map(r => ({ type: 'Feature', properties: {}, geometry: r.geom })),
+      { style: { fillOpacity: 0, color: 'rgba(0,0,0,0.1)', weight: 0.4 }, interactive: false }
+    ).addTo(layers.municipalities);
+  } catch {
+    municipalitiesLoaded = false; // allow retry
+  }
+}
+
+function maybeLoadMunicipalities() {
+  if (map.getZoom() >= 9) {
+    if (!map.hasLayer(layers.municipalities)) map.addLayer(layers.municipalities);
+    loadMunicipalities();
+  } else {
+    if (map.hasLayer(layers.municipalities)) map.removeLayer(layers.municipalities);
+  }
+}
+
+async function loadStateBoundaries() {
+  try {
+    const res = await apiFetch('/regions?level=state');
+    const features = res.results.map(r => ({
+      type: 'Feature',
+      properties: {},
+      geometry: r.geom,
+    }));
+    L.geoJSON(features, {
+      style: { fillOpacity: 0, color: 'rgba(13,148,136,0.6)', weight: 1.8 },
+      interactive: false,
+    }).addTo(layers.stateBoundary);
+  } catch { /* non-critical */ }
+}
+
+function buildHexLayer(data) {
+  return new deck.HexagonLayer({
+    id: 'hex-layer',
+    data,
+    getPosition: d => d.position,
+    radius: map.getZoom() < 10 ? 500 : 200,
+    colorRange: SCALE_RGB,
+    elevationRange: [0, 500],
+    elevationScale: 4,
+    upperPercentile: 99,
+    coverage: 0.9,
+    opacity: 0.75,
+    pickable: true,
+    extruded: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 255, 30],
+    onClick: ({ object }) => { if (object) showInsightHex(object); },
+  });
+}
+
+async function loadHex() {
+  const b = map.getBounds();
+  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}&limit=5000`;
+  if (state.category)    url += `&category=${state.category}`;
+  if (state.participant) url += `&participant=${state.participant}`;
+
+  let res;
+  try { res = await apiFetch(url); } catch { return; }
+
+  const data = res.results.map(a => ({ position: [a.lon, a.lat], category: a.category }));
+  deckInstance.setProps({ layers: [buildHexLayer(data)] });
+  updateDynamicStat(`⬡ ${data.length.toLocaleString('en-US')}`, 'in viewport');
+}
+
+const PARTICIPANT_ICON = { car: '🚗', bike: '🚲', pedestrian: '🚶', truck: '🚛' };
+
+function getParticipantIcon(acc) {
+  // If a filter is active, always show that filter's icon
+  if (state.participant && PARTICIPANT_ICON[state.participant]) {
+    return PARTICIPANT_ICON[state.participant];
+  }
+  // No filter — pick the primary participant from the accident data
+  if (acc.participant_bike)       return '🚲';
+  if (acc.participant_pedestrian) return '🚶';
+  if (acc.participant_truck)      return '🚛';
+  if (acc.participant_car)        return '🚗';
+  return '💥';
+}
+
+function renderSinglePoint(acc) {
+  const icon = getParticipantIcon(acc);
+  const marker = L.marker([acc.lat, acc.lon], {
+    icon: L.divIcon({
+      className: '',
+      html: `<div class="acc-icon">${icon}</div>`,
+      iconSize: [20, 20], iconAnchor: [10, 10],
+    }),
+  });
+  marker.on('click', () => showDetailCard(acc, [acc.lat, acc.lon]));
+  return marker;
+}
+
+async function loadPoints() {
+  layers.accidents.clearLayers();
+  const cb = state.cityBounds;
+  const south = cb ? cb.south : map.getBounds().getSouth();
+  const north = cb ? cb.north : map.getBounds().getNorth();
+  const west  = cb ? cb.west  : map.getBounds().getWest();
+  const east  = cb ? cb.east  : map.getBounds().getEast();
+  let url = `/accidents?year=${state.year}&lat_min=${south}&lat_max=${north}&lon_min=${west}&lon_max=${east}&limit=5000`;
+  if (state.category)    url += `&category=${state.category}`;
+  if (state.participant) url += `&participant=${state.participant}`;
+
+  let res;
+  try { res = await apiFetch(url); } catch { return; }
+  const accidents = res.results;
+
+  for (const acc of accidents) {
+    renderSinglePoint(acc).addTo(layers.accidents);
+  }
+
+  updateDynamicStat(accidents.length.toLocaleString('en-US'), 'in viewport');
+}
+
+function showDetailCard(acc, latlng) {
+  const sevLabel = acc.category === 1 ? 'Fatal' : acc.category === 2 ? 'Serious' : 'Minor';
+  const sevClass = acc.category === 1 ? 'fatal' : acc.category === 2 ? 'serious' : 'minor';
+
+  const parts = [];
+  if (acc.participant_car)        parts.push('Car');
+  if (acc.participant_bike)       parts.push('Bike');
+  if (acc.participant_pedestrian) parts.push('Pedestrian');
+  if (acc.participant_truck)      parts.push('Truck');
+  if (acc.participant_moped)      parts.push('Moped');
+
+  const year = acc.year || '—';
+
+  L.popup({ className: 'detail-card', closeButton: true, maxWidth: 280 })
+    .setLatLng(latlng)
+    .setContent(`
+      <div class="card-header">
+        <span class="card-severity card-severity--${sevClass}">${sevLabel}</span>
+        <span class="card-datetime">${year}</span>
+      </div>
+      <div class="card-body">
+        ${acc.region_name ? `<div>${acc.region_name}</div>` : ''}
+        ${parts.length ? `<div style="color:#9CA3AF;font-size:12px">${parts.join(', ')}</div>` : ''}
+      </div>
+    `)
+    .openOn(map);
+}
+
+function wirePanelA() {
+  const btn      = document.getElementById('panel-a-btn');
+  const dropdown = document.getElementById('panel-a-dropdown');
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    dropdown.classList.toggle('hidden');
+  });
+  document.addEventListener('click', () => dropdown.classList.add('hidden'));
+
+  dropdown.querySelectorAll('.mode-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      state.mode = opt.dataset.mode;
+      dropdown.querySelectorAll('.mode-option').forEach(o => o.classList.remove('mode-option--active'));
+      opt.classList.add('mode-option--active');
+      dropdown.classList.add('hidden');
+
+      if (state.mode === 'auto') {
+        switchLayer(targetLayerForZoom(map.getZoom()));
+      } else {
+        const nameMap = { district: 'choropleth', hex: 'hex', point: 'point' };
+        switchLayer(nameMap[state.mode]);
+      }
+    });
+  });
+}
+
+function wireLeftPanel() {
+  // Participant filter
+  document.getElementById('lp-participant').addEventListener('click', e => {
+    const btn = e.target.closest('.lp-pill');
+    if (!btn) return;
+    document.querySelectorAll('#lp-participant .lp-pill').forEach(b => b.classList.remove('lp-pill--active'));
+    btn.classList.add('lp-pill--active');
+    state.participant = btn.dataset.participant;
+    reloadActiveLayer();
+  });
+
+  // Severity filter
+  document.getElementById('lp-severity').addEventListener('click', e => {
+    const btn = e.target.closest('.lp-pill');
+    if (!btn) return;
+    document.querySelectorAll('#lp-severity .lp-pill').forEach(b => b.classList.remove('lp-pill--active'));
+    btn.classList.add('lp-pill--active');
+    state.category = btn.dataset.category;
+    reloadActiveLayer();
+  });
+
+  // City jump → flyTo + force point mode so emoji markers appear
+  document.getElementById('lp-city').addEventListener('change', e => {
+    restoreDefaultLayers();
+    const val = e.target.value;
+    if (!val) return;
+    const [lat, lon, z] = val.split(',').map(Number);
+    const r = z >= 13 ? 0.07 : z >= 12 ? 0.14 : 0.28;
+    state.cityBounds = { south: lat - r, north: lat + r, west: lon - r * 1.6, east: lon + r * 1.6 };
+    state.mode = 'point';
+    document.querySelectorAll('#panel-a-dropdown .mode-option').forEach(o => o.classList.remove('mode-option--active'));
+    document.querySelector('#panel-a-dropdown [data-mode="point"]').classList.add('mode-option--active');
+    switchLayer('point');
+    map.flyTo([lat, lon], z, { duration: 1.2 });
+    setTimeout(() => { e.target.value = ''; }, 1200);
+  });
+
+  map.on('dragend', () => { state.cityBounds = null; });
+
+  // Queries
+  document.querySelectorAll('#lp-queries .lp-query').forEach(card => {
+    const q   = parseInt(card.dataset.q);
+    const btn = card.querySelector('.lp-run');
+    const out = card.querySelector('.lp-result');
+    const selects = card.querySelectorAll('select[data-param]');
+
+    btn.addEventListener('click', async () => {
+      const args = {};
+      const labels = {};
+      selects.forEach(sel => {
+        const key = sel.dataset.param;
+        args[key] = key === 'year' ? parseInt(sel.value) : sel.value;
+        labels[key] = sel.selectedOptions[0]?.textContent ?? '';
+      });
+      btn.textContent = '…'; btn.classList.add('loading');
+      try {
+        const res = await EQ_QUERIES[q](args);
+        out.innerHTML = formatEqResult(q, res, labels);
+        out.classList.remove('hidden');
+      } catch {
+        out.innerHTML = '<span style="color:#EF4444">Request failed</span>';
+        out.classList.remove('hidden');
+      } finally {
+        btn.textContent = 'Run'; btn.classList.remove('loading');
+      }
+    });
+  });
+}
+
+async function updateKPIs() {
+  let url = `/aggregates/accidents?year=${state.year}`;
+  if (state.category)    url += `&category=${state.category}`;
+
+  try {
+    const [res, fatalRes] = await Promise.all([
+      apiFetch(url),
+      apiFetch(`/aggregates/accidents?year=${state.year}&category=1`),
+    ]);
+    const total = res.metadata?.total_count
+      ?? res.results.reduce((s, r) => s + r.accident_count, 0);
+    const fatal = fatalRes.metadata?.total_count
+      ?? fatalRes.results.reduce((s, r) => s + r.accident_count, 0);
+    document.querySelector('#stat-total .stat-num').textContent = total.toLocaleString('en-US');
+    document.querySelector('#stat-fatal .stat-num').textContent = fatal.toLocaleString('en-US');
+  } catch { /* keep dashes */ }
+}
+async function loadAllYearData() {
+  try {
+    const [allRes, fatalRes, seriousRes] = await Promise.all([
+      apiFetch('/aggregates/accidents'),
+      apiFetch('/aggregates/accidents?category=1'),
+      apiFetch('/aggregates/accidents?category=2'),
+    ]);
+
+    const total = {}, fatal = {}, serious = {};
+    for (const r of allRes.results)     total[r.year]   = (total[r.year]   || 0) + r.accident_count;
+    for (const r of fatalRes.results)   fatal[r.year]   = (fatal[r.year]   || 0) + r.accident_count;
+    for (const r of seriousRes.results) serious[r.year] = (serious[r.year] || 0) + r.accident_count;
+
+    for (const y of YEARS) {
+      state.yearData[y] = {
+        total:   total[y]   || 0,
+        fatal:   fatal[y]   || 0,
+        serious: serious[y] || 0,
+        minor:   (total[y] || 0) - (fatal[y] || 0) - (serious[y] || 0),
+      };
+    }
+    renderScrubberSparkline();
+    updateScrubberPlayhead();
+  } catch { /* sparkline stays empty */ }
+}
+
+function renderScrubberSparkline() {
+  const svg = document.getElementById('scrubber-svg');
+  if (!svg) return;
+  const maxTotal = Math.max(...YEARS.map(y => state.yearData[y]?.total || 0), 1);
+  const W = 270, H = 40;
+  const colW = W / YEARS.length;
+  const barW = colW - 2;
+
+  svg.innerHTML = YEARS.map((y, i) => {
+    const d = state.yearData[y] || {};
+    const x = i * colW + 1;
+    const fH = ((d.fatal   || 0) / maxTotal) * H;
+    const sH = ((d.serious || 0) / maxTotal) * H;
+    const mH = ((d.minor   || 0) / maxTotal) * H;
+    let yPos = H;
+    const rects = [];
+    if (mH > 0) { yPos -= mH; rects.push(`<rect x="${x}" y="${yPos}" width="${barW}" height="${mH}" fill="#C2410C"/>`); }
+    if (sH > 0) { yPos -= sH; rects.push(`<rect x="${x}" y="${yPos}" width="${barW}" height="${sH}" fill="#EF4444"/>`); }
+    if (fH > 0) { yPos -= fH; rects.push(`<rect x="${x}" y="${yPos}" width="${barW}" height="${fH}" fill="#7F1D1D"/>`); }
+    return rects.join('');
+  }).join('');
+}
+
+function updateScrubberPlayhead() {
+  const idx = YEARS.indexOf(state.year);
+  const pct = idx / (YEARS.length - 1);
+  const ph = document.getElementById('scrubber-playhead');
+  if (ph) ph.style.left = `${pct * 100}%`;
+
+  document.querySelectorAll('.scrubber-labels span').forEach((s, i) => {
+    s.classList.toggle('active', i === idx);
+  });
+}
+
+function wireScrubber() {
+  const track   = document.getElementById('scrubber-track');
+  const playBtn = document.getElementById('scrubber-play');
+
+  function yearFromClientX(clientX) {
+    const rect = track.getBoundingClientRect();
+    const pct  = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return YEARS[Math.round(pct * (YEARS.length - 1))];
+  }
+
+  function setYear(y) {
+    if (y === state.year) return;
+    state.year = y;
+    updateScrubberPlayhead();
+    reloadActiveLayer();
+    updateKPIs();
+  }
+
+  let dragging = false;
+  document.getElementById('scrubber-playhead').addEventListener('mousedown', () => { dragging = true; });
+  document.addEventListener('mousemove', e => { if (dragging) setYear(yearFromClientX(e.clientX)); });
+  document.addEventListener('mouseup',   () => { dragging = false; });
+  track.addEventListener('click', e => setYear(yearFromClientX(e.clientX)));
+
+  playBtn.addEventListener('click', () => {
+    if (state.playInterval) {
+      clearInterval(state.playInterval);
+      state.playInterval = null;
+      playBtn.textContent = '▶';
+      return;
+    }
+    playBtn.textContent = '⏸';
+    state.playInterval = setInterval(() => {
+      setYear(YEARS[(YEARS.indexOf(state.year) + 1) % YEARS.length]);
+    }, 3000);
+  });
+}
+// ── Insight panel ──────────────────────────────────────────────────────────
+function openInsightPanel(html) {
+  document.getElementById('insight-content').innerHTML = html;
+  document.getElementById('insight-panel').classList.add('open');
+}
+
+function closeInsightPanel() {
+  document.getElementById('insight-panel').classList.remove('open');
+}
+
+async function showInsightDistrict(ags, name, count) {
+  let trend = YEARS.map(() => 0);
+  try {
+    const res = await apiFetch(`/aggregates/accidents?level=district&ags=${ags}`);
+    const byYear = {};
+    for (const r of res.results) {
+      if (String(r.region_id) === ags) byYear[r.year] = (byYear[r.year] || 0) + r.accident_count;
+    }
+    trend = YEARS.map(y => byYear[y] || 0);
+  } catch { /* show zeros */ }
+
+  const maxT = Math.max(...trend, 1);
+  const colW = 14;
+  const sparkBars = trend.map((v, i) => {
+    const h = (v / maxT) * 30;
+    const fill = (v === Math.max(...trend)) ? '#EF4444' : '#8B6914';
+    return `<rect x="${i * colW}" y="${30 - h}" width="${colW - 2}" height="${h}" fill="${fill}"/>`;
+  }).join('');
+
+  openInsightPanel(`
+    <div class="insight-title">${name}</div>
+    <div class="insight-subtitle">District · ${state.year}</div>
+    <div class="insight-stat">
+      <span>Total accidents</span>
+      <span class="insight-stat-val">${count.toLocaleString('en-US')}</span>
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:11px;color:#6B7280;margin-bottom:6px">Trend 2016–2024</div>
+      <svg viewBox="0 0 ${YEARS.length * colW} 32" style="width:100%;height:40px">
+        ${sparkBars}
+      </svg>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#6B7280;margin-top:2px">
+        <span>2016</span><span>2024</span>
+      </div>
+    </div>
+  `);
+}
+
+const geoCache = new Map();
+
+async function reverseGeocode(lat, lng) {
+  const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+  if (geoCache.has(key)) return geoCache.get(key);
+  try {
+    const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+    const data = await res.json();
+    const addr = data.address?.road || data.display_name || `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+    geoCache.set(key, addr);
+    return addr;
+  } catch {
+    return `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+  }
+}
+
+async function showInsightHex(object) {
+  const points  = object.points || [];
+  const count   = points.length;
+  const fatal   = points.filter(p => p.source?.category === 1).length;
+  const serious = points.filter(p => p.source?.category === 2).length;
+  const minor   = count - fatal - serious;
+  const lat = object.position?.[1] ?? 0;
+  const lng = object.position?.[0] ?? 0;
+  const addr = await reverseGeocode(lat, lng);
+
+  openInsightPanel(`
+    <div class="insight-title">Hex Cell</div>
+    <div class="insight-subtitle">${addr}</div>
+    <div class="insight-stat">
+      <span>Total accidents</span><span class="insight-stat-val">${count}</span>
+    </div>
+    <div class="insight-stat">
+      <span>Fatal</span>
+      <span class="insight-stat-val" style="color:#7F1D1D">${fatal}</span>
+    </div>
+    <div class="insight-stat">
+      <span>Serious</span>
+      <span class="insight-stat-val" style="color:#EF4444">${serious}</span>
+    </div>
+    <div class="insight-stat">
+      <span>Minor</span>
+      <span class="insight-stat-val" style="color:#C2410C">${minor}</span>
+    </div>
+  `);
+}
+
+// ── Nearby Hazards ─────────────────────────────────────────────────────────
+function cellCentroid(cellGeom) {
+  const ring = cellGeom.coordinates[0];
+  const lon = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+  const lat = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  return [lat, lon];
+}
+
+function showToast(msg) {
+  let el = document.getElementById('hazard-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'hazard-toast';
+    el.className = 'hazard-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('hazard-toast--visible');
+  setTimeout(() => el.classList.remove('hazard-toast--visible'), 3000);
+}
+
+function showInsightHazard(zone) {
+  openInsightPanel(`
+    <div class="insight-title">⚠️ Accident Hotspot</div>
+    <div class="insight-subtitle">${zone.region_name || 'Unknown area'}</div>
+    <div class="insight-stat">
+      <span>Accidents (${zone.year_from}–${zone.year_to})</span>
+      <span class="insight-stat-val">${zone.accident_count}</span>
+    </div>
+    <div class="insight-stat">
+      <span>Distance from you</span>
+      <span class="insight-stat-val">${zone.distance_m} m</span>
+    </div>
+    <div style="margin-top:16px;font-size:12px;color:#EF4444">
+      Be careful in this area.
+    </div>
+  `);
+}
+
+async function loadNearbyHazards() {
+  const btn = document.getElementById('btn-nearby-hazards');
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+  layers.choropleth.clearLayers();
+  layers.municipalities.clearLayers();
+  layers.stateBoundary.clearLayers();
+  layers.accidents.clearLayers();
+  layers.hazards.clearLayers();
+  map.removeLayer(layers.choropleth);
+  map.removeLayer(layers.stateBoundary);
+  map.removeLayer(layers.accidents);
+
+  if (!navigator.geolocation) {
+    showToast('Geolocation not supported by your browser.');
+    btn.textContent = '📍 Nearby Hazards';
+    btn.disabled = false;
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      try {
+        const res = await apiFetch(`/zones/nearby-hazards?lat=${lat}&lon=${lon}`);
+        const zones = res.results || [];
+        map.flyTo([lat, lon], 12, { duration: 1.2 });
+        L.marker([lat, lon], {
+          icon: L.divIcon({
+            className: '',
+            html: '<div style="width:14px;height:14px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 6px rgba(59,130,246,0.8)"></div>',
+            iconSize: [14, 14],
+            iconAnchor: [7, 7],
+          }),
+        }).addTo(layers.hazards);
+        if (zones.length === 0) {
+          showToast('No accident hotspots within 500 m of your location.');
+        } else {
+          for (const zone of zones) {
+            const [clat, clon] = cellCentroid(zone.cell_geom);
+            const marker = L.marker([clat, clon], {
+              icon: L.divIcon({
+                className: '',
+                html: '<div class="hazard-marker"></div>',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+              }),
+            });
+            marker.on('click', () => showInsightHazard(zone));
+            marker.addTo(layers.hazards);
+          }
+        }
+      } catch (err) {
+        const msg = String(err).includes('422')
+          ? 'Your location is outside Germany.'
+          : 'Could not load nearby hazards.';
+        showToast(msg);
+      }
+      btn.textContent = '📍 Nearby Hazards';
+      btn.disabled = false;
+    },
+    () => {
+      showToast('Location access denied — allow location in your browser.');
+      btn.textContent = '📍 Nearby Hazards';
+      btn.disabled = false;
+    }
+  );
+}
+
+function wireNearbyHazards() {
+  document.getElementById('btn-nearby-hazards')
+    .addEventListener('click', loadNearbyHazards);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+const EQ_QUERIES = {
+  1: ()              => apiFetch('/aggregates/accidents?aggregate=earliest_year'),
+  // Personal injury = all categories (fatal+serious+slight), no category filter
+  2: ({year})        => apiFetch(`/aggregates/accidents?state=SN&year=${year}`),
+  3: ()              => apiFetch('/aggregates/accidents?state=NW&aggregate=earliest_year'),
+  4: ()              => apiFetch('/aggregates/accidents?state=MV&aggregate=earliest_year'),
+  5: ({year, city})  => apiFetch(`/accidents?ags=${city}&year=${year}&participant=pedestrian`),
+  // Multi-source: joins accident data with registered car counts
+  6: ({year, state}) => {
+    const stateClause = state ? `&state=${state}` : '';
+    return apiFetch(`/aggregates/accident-rate?denominator=cars_pkw&year=${year}&level=district${stateClause}`);
+  },
+  // Multi-source: joins accident data with population figures
+  7: ({year, severity}) => {
+    const sevClause = severity === 'all' ? '' : `&severity=${severity}`;
+    return apiFetch(`/aggregates/accident-rate/top?level=district&year=${year}${sevClause}&denominator=population&limit=5&min_population=50000`);
+  },
+  // Raw fatal count top-5 (single-source, client-sorted)
+  8: ({year})        => apiFetch(`/aggregates/accidents?level=district&year=${year}&category=1`),
+  // Bicycle accidents in selected city + vehicle
+  9: ({year, city, vehicle}) => apiFetch(`/accidents?ags=${city}&year=${year}&participant=${vehicle}`),
+  // Bonus: zero-accident municipalities — uses PostGIS spatial join on backend
+  10: ({year, state}) => apiFetch(`/aggregates/zero-accident-regions?level=municipality&state=${state}&year=${year}`),
+};
+
+function formatEqResult(q, res, labels = {}) {
+  const row = (label, val) =>
+    `<div class="lp-result-row"><span>${label}</span><span>${val}</span></div>`;
+
+  if (q === 1 || q === 3 || q === 4) {
+    const yr = res.results?.earliest_year ?? '—';
+    return row('Earliest year', yr);
+  }
+  if (q === 2) {
+    const total = res.metadata?.total_count
+      ?? (res.results || []).reduce((s, r) => s + (r.accident_count || 0), 0);
+    return row('Personal injury accidents', Number(total).toLocaleString('en-US'));
+  }
+  if (q === 5) {
+    const total = res.metadata?.total_count ?? res.results?.length ?? '—';
+    const city = labels.city || 'Berlin';
+    return row(`Pedestrian accidents in ${city}`, Number(total).toLocaleString('en-US'));
+  }
+  if (q === 6) {
+    const rows6 = (res.results || []).filter(r => r.rate_per_100k != null).slice(0, 5);
+    if (!rows6.length) return row('No data', 'indicator_values empty — load Regionalstatistik CSV');
+    return rows6.map(r => row(r.name, `${r.rate_per_100k} / 100k`)).join('');
+  }
+  if (q === 7) {
+    const rows7 = res.results || [];
+    if (!rows7.length) return row('No data', 'indicator_values empty — load Regionalstatistik CSV');
+    const sev = (labels.severity || '').toLowerCase();
+    const tag = (sev && sev !== 'all') ? ` (${sev})` : '';
+    return rows7.map(r => row(`${r.rank}. ${r.name}${tag}`, `${r.rate_per_100k ?? '—'} / 100k`)).join('');
+  }
+  if (q === 8) {
+    const top5 = (res.results || [])
+      .sort((a, b) => (b.accident_count || 0) - (a.accident_count || 0))
+      .slice(0, 5);
+    return top5.map((r, i) =>
+      row(`${i + 1}. ${r.region_name || r.region_id}`, (r.accident_count || 0).toLocaleString('en-US'))
+    ).join('');
+  }
+  if (q === 9) {
+    const total = res.metadata?.total_count ?? res.results?.length ?? '—';
+    const vehicle = labels.vehicle || 'Bike';
+    const city = labels.city || 'Dresden';
+    return row(`${vehicle} accidents in ${city}`, Number(total).toLocaleString('en-US'));
+  }
+  if (q === 10) {
+    const zero = res.results || [];
+    const total = res.metadata?.total_regions ?? '?';
+    const state = res.metadata?.state ?? '';
+    const header = row(`Zero-accident (${state})`, `${zero.length} / ${total} municipalities`);
+    if (!zero.length) return header;
+    const items = zero.map((r, i) =>
+      `<div class="lp-result-list-item">${i + 1}. ${r.name}</div>`
+    ).join('');
+    return header + `<div class="lp-result-list">${items}</div>`;
+  }
+  return '';
+}
+
+
 async function init() {
   await checkApiStatus();
-  await Promise.all([
-    loadChoropleth(),
-    loadHotspots(),
-    loadSafeZones(),
-    updateKPIs(),
-    renderYearChart(),
-  ]);
+  wirePanelA();
+  wireLeftPanel();
+  wireNearbyHazards();
+  wireScrubber();
+  document.getElementById('insight-close').addEventListener('click', closeInsightPanel);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInsightPanel(); });
+  await Promise.all([loadChoropleth(), loadStateBoundaries(), updateKPIs(), loadAllYearData()]);
 }
 
 document.addEventListener('DOMContentLoaded', () => init().catch(console.error));

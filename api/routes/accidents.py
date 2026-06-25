@@ -21,19 +21,30 @@ _PARTICIPANT_COL = {
 @router.get("")
 def list_accidents(
     state: str | None = None,
+    ags: str | None = None,
     year: int | None = None,
     category: int | None = None,
     participant: str | None = None,
-    limit: int = Query(100, ge=1, le=1000),
+    lat_min: float | None = Query(None, ge=-90, le=90),
+    lat_max: float | None = Query(None, ge=-90, le=90),
+    lon_min: float | None = Query(None, ge=-180, le=180),
+    lon_max: float | None = Query(None, ge=-180, le=180),
+    limit: int | None = Query(None, ge=1),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     """
     List accidents with optional filters.
     Q5: state=BE&year=2023&participant=pedestrian → pedestrian accidents in Berlin 2023.
+    bbox: lat_min, lat_max, lon_min, lon_max → spatial filter to map viewport.
+    limit: omit or set to 0 to return all matching rows (no cap).
     """
     conditions = []
-    params: dict = {"limit": limit, "offset": offset}
+    params: dict = {"offset": offset}
+
+    if ags:
+        conditions.append("region_id = :ags")
+        params["ags"] = ags
 
     if state:
         state_prefix = _STATE_CODE.get(state.upper())
@@ -56,7 +67,28 @@ def list_accidents(
             assert col in _PARTICIPANT_COL.values(), f"unsafe column name: {col}"
             conditions.append(f"{col} = TRUE")
 
+    # Viewport bounding box filter
+    if lat_min is not None:
+        conditions.append("lat >= :lat_min")
+        params["lat_min"] = lat_min
+    if lat_max is not None:
+        conditions.append("lat <= :lat_max")
+        params["lat_max"] = lat_max
+    if lon_min is not None:
+        conditions.append("lon >= :lon_min")
+        params["lon_min"] = lon_min
+    if lon_max is not None:
+        conditions.append("lon <= :lon_max")
+        params["lon_max"] = lon_max
+
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    # Build LIMIT/OFFSET clause — omit LIMIT when not requested
+    if limit is not None:
+        params["limit"] = limit
+        limit_clause = "LIMIT :limit OFFSET :offset"
+    else:
+        limit_clause = "OFFSET :offset"
 
     rows = db.execute(
         text(
@@ -69,16 +101,11 @@ def list_accidents(
             FROM accidents
             {where}
             ORDER BY year, id
-            LIMIT :limit OFFSET :offset
+            {limit_clause}
             """
         ),
         params,
     ).fetchall()
-
-    count_row = db.execute(
-        text(f"SELECT COUNT(*) FROM accidents {where}"),
-        {k: v for k, v in params.items() if k not in ("limit", "offset")},
-    ).scalar()
 
     results = [
         {
@@ -108,5 +135,5 @@ def list_accidents(
     return envelope(
         results,
         sources_used=["unfallatlas"],
-        extra_meta={"total_count": count_row, "limit": limit, "offset": offset},
+        extra_meta={"total_count": len(results), "offset": offset},
     )
