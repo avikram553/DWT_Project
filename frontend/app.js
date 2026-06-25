@@ -480,12 +480,14 @@ function wireLeftPanel() {
     const btn = card.querySelector('.lp-run');
     const out = card.querySelector('.lp-result');
     const yrSel = card.querySelector('.lp-year-sel');
+    const stSel = card.querySelector('.lp-state-sel');
 
     btn.addEventListener('click', async () => {
       const yr = yrSel ? parseInt(yrSel.value) : null;
+      const st = stSel ? stSel.value : null;
       btn.textContent = '…'; btn.classList.add('loading');
       try {
-        const res = await EQ_QUERIES[q](yr);
+        const res = await EQ_QUERIES[q](yr, st);
         out.innerHTML = formatEqResult(q, res);
         out.classList.remove('hidden');
       } catch {
@@ -723,18 +725,8 @@ const EQ_QUERIES = {
   8: (yr)  => apiFetch(`/aggregates/accidents?level=district&year=${yr}&category=1`),
   // Bicycle accidents in Dresden (AGS 14612)
   9: (yr)  => apiFetch(`/accidents?ags=14612&year=${yr}&participant=bike&limit=10000`),
-  // Bonus: zero-accident municipalities in Saxony — cross-references full region list
-  10: async (yr) => {
-    const [regRes, accRes] = await Promise.all([
-      apiFetch('/regions?level=municipality'),
-      apiFetch(`/aggregates/accidents?level=municipality&year=${yr}&state=SN`),
-    ]);
-    const counts = {};
-    for (const r of accRes.results) counts[String(r.region_id)] = r.accident_count;
-    const saxMunis = regRes.results.filter(r => String(r.ags).startsWith('14'));
-    const zero = saxMunis.filter(r => !counts[String(r.ags)]);
-    return { _zero: zero, _total: saxMunis.length };
-  },
+  // Bonus: zero-accident municipalities — uses PostGIS spatial join on backend
+  10: (yr, st) => apiFetch(`/aggregates/zero-accident-regions?level=municipality&state=${st}&year=${yr}`),
 };
 
 function formatEqResult(q, res) {
@@ -777,10 +769,15 @@ function formatEqResult(q, res) {
     return row('Bicycle accidents', Number(total).toLocaleString('en-US'));
   }
   if (q === 10) {
-    const count = res._zero?.length ?? '—';
-    const sample = (res._zero || []).slice(0, 3).map(r => r.name).join(', ');
-    return row(`Zero-accident municipalities`, `${count} / ${res._total}`) +
-      (sample ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">${sample}${res._zero?.length > 3 ? '…' : ''}</div>` : '');
+    const zero = res.results || [];
+    const total = res.metadata?.total_regions ?? '?';
+    const state = res.metadata?.state ?? '';
+    const header = row(`Zero-accident (${state})`, `${zero.length} / ${total} municipalities`);
+    if (!zero.length) return header;
+    const items = zero.map((r, i) =>
+      `<div class="lp-result-list-item">${i + 1}. ${r.name}</div>`
+    ).join('');
+    return header + `<div class="lp-result-list">${items}</div>`;
   }
   return '';
 }

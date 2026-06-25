@@ -334,3 +334,67 @@ def accident_rate_top(
             "min_population_filter": min_population,
         },
     )
+
+
+# ─── /aggregates/zero-accident-regions ───────────────────────────────────────
+
+@router.get("/zero-accident-regions")
+def zero_accident_regions(
+    level: str = Query("municipality", pattern="^(district|municipality)$"),
+    state: str | None = None,
+    year: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Regions at given level with zero accidents — uses PostGIS spatial join
+    so works at municipality level even though accidents store district AGS.
+    Q10 bonus: zero-accident municipalities in Saxony.
+    """
+    state_prefix = _state_prefix(state)
+    params: dict = {"level": level}
+
+    state_clause = ""
+    if state_prefix:
+        state_clause = "AND LEFT(r.ags, 2) = :state_prefix"
+        params["state_prefix"] = state_prefix
+
+    year_clause = ""
+    if year is not None:
+        year_clause = "AND a.year = :year"
+        params["year"] = year
+
+    rows = db.execute(
+        text(
+            f"""
+            WITH accident_regions AS (
+                SELECT DISTINCT r.ags
+                FROM accidents a
+                JOIN regions r ON ST_Within(a.geom, r.geom)
+                WHERE r.level = :level
+                  {state_clause}
+                  {year_clause}
+            )
+            SELECT r.ags, r.name
+            FROM regions r
+            WHERE r.level = :level
+              {state_clause}
+              AND r.ags NOT IN (SELECT ags FROM accident_regions)
+            ORDER BY r.name
+            """
+        ),
+        params,
+    ).fetchall()
+
+    total_row = db.execute(
+        text(
+            f"SELECT COUNT(*) FROM regions r WHERE r.level = :level {state_clause}"
+        ),
+        params,
+    ).scalar()
+
+    results = [{"ags": r[0], "name": r[1]} for r in rows]
+    return envelope(
+        results,
+        sources_used=["unfallatlas"],
+        extra_meta={"level": level, "year": year, "state": state, "total_regions": total_row},
+    )

@@ -384,6 +384,13 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
   cursor: pointer; outline: none; -webkit-appearance: none; appearance: none;
 }
 .lp-year-sel:focus { border-color: var(--accent-red); }
+.lp-state-sel {
+  flex: 1.4; padding: 4px 8px;
+  background: var(--bg-card); border: 1px solid var(--border-default);
+  border-radius: 6px; color: var(--text-secondary); font-size: 11px;
+  cursor: pointer; outline: none; -webkit-appearance: none; appearance: none;
+}
+.lp-state-sel:focus { border-color: var(--accent-red); }
 
 .lp-run {
   flex-shrink: 0; font-size: 11px; padding: 4px 10px; border-radius: 6px;
@@ -401,6 +408,15 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 .lp-result.hidden { display: none; }
 .lp-result-row { display: flex; justify-content: space-between; padding: 2px 0; }
 .lp-result-row span:last-child { font-family: monospace; color: var(--accent-red); }
+.lp-result-list {
+  max-height: 220px; overflow-y: auto; margin-top: 6px;
+  scrollbar-width: thin; scrollbar-color: var(--border-default) transparent;
+}
+.lp-result-list-item {
+  padding: 2px 0; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lp-result-list-item:last-child { border-bottom: none; }
 
 .lp-bonus-tag {
   display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
