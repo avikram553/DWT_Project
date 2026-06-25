@@ -22,6 +22,10 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 /* ── Map ── */
 #map { position: fixed; inset: 0; z-index: 0; }
 
+/* Leaflet tile zoom: extend animation duration for fluid feel */
+.leaflet-zoom-animated { transition-duration: 350ms !important; transition-timing-function: cubic-bezier(0.25,0.46,0.45,0.94) !important; }
+.leaflet-fade-anim .leaflet-tile-pane { transition: opacity 300ms ease-out !important; }
+
 /* ── deck.gl canvas ── */
 #deck-canvas {
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
