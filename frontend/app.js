@@ -207,7 +207,6 @@ async function loadChoropleth() {
 
   let countUrl = `/aggregates/accidents?level=district&year=${state.year}`;
   if (state.category)    countUrl += `&category=${state.category}`;
-  if (state.participant) countUrl += `&participant=${state.participant}`;
 
   const [countRes, geoRes] = await Promise.all([
     apiFetch(countUrl),
@@ -316,7 +315,7 @@ function buildHexLayer(data) {
 
 async function loadHex() {
   const b = map.getBounds();
-  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}`;
+  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}&limit=5000`;
   if (state.category)    url += `&category=${state.category}`;
   if (state.participant) url += `&participant=${state.participant}`;
 
@@ -362,7 +361,7 @@ function renderSinglePoint(acc) {
 async function loadPoints() {
   layers.accidents.clearLayers();
   const b = map.getBounds();
-  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}`;
+  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}&limit=5000`;
   if (state.category)    url += `&category=${state.category}`;
   if (state.participant) url += `&participant=${state.participant}`;
 
@@ -489,7 +488,6 @@ function wirePanelB() {
 async function updateKPIs() {
   let url = `/aggregates/accidents?year=${state.year}`;
   if (state.category)    url += `&category=${state.category}`;
-  if (state.participant) url += `&participant=${state.participant}`;
 
   try {
     const [res, fatalRes] = await Promise.all([
@@ -616,7 +614,9 @@ async function showInsightDistrict(ags, name, count) {
   try {
     const res = await apiFetch(`/aggregates/accidents?level=district&ags=${ags}`);
     const byYear = {};
-    for (const r of res.results) byYear[r.year] = (byYear[r.year] || 0) + r.accident_count;
+    for (const r of res.results) {
+      if (String(r.region_id) === ags) byYear[r.year] = (byYear[r.year] || 0) + r.accident_count;
+    }
     trend = YEARS.map(y => byYear[y] || 0);
   } catch { /* show zeros */ }
 
