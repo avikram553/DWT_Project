@@ -294,14 +294,15 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
   display: flex; flex-direction: column; gap: 4px;
 }
 .legend-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-secondary); }
-.legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.15); }
 .legend-hidden { display: none !important; }
 
 /* ── District label (permanent Leaflet tooltip) ── */
 .district-label {
   background: none; border: none; box-shadow: none;
-  font-size: 11px; color: #9CA3AF; pointer-events: none;
-  white-space: nowrap;
+  font-size: 11px; color: #374151; pointer-events: none;
+  white-space: nowrap; font-weight: 500;
+  text-shadow: 0 0 3px rgba(255,255,255,0.9);
 }
 .district-label::before { display: none; }
 
@@ -427,3 +428,41 @@ body { background: var(--bg-deep); color: var(--text-primary); font-family: syst
 
 /* ── Utility ── */
 .hidden { display: none !important; }
+
+/* ── Nearby Hazards ── */
+@keyframes hotspotPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.8); }
+  70%  { box-shadow: 0 0 0 14px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+
+.hazard-marker {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent-red);
+  border: 2px solid rgba(255,255,255,0.3);
+  animation: hotspotPulse 1.5s ease-in-out infinite;
+  cursor: pointer;
+}
+
+.lp-hazard-btn {
+  width: 100%; padding: 8px 10px; border-radius: 8px;
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.35);
+  color: var(--accent-red); font-size: 12px; font-weight: 600;
+  cursor: pointer; text-align: center;
+  transition: background 150ms, border-color 150ms;
+}
+.lp-hazard-btn:hover { background: rgba(239,68,68,0.22); border-color: var(--accent-red); }
+.lp-hazard-btn:disabled { opacity: 0.5; pointer-events: none; }
+
+.hazard-toast {
+  position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+  background: rgba(17,24,39,0.95);
+  border: 1px solid var(--border-default);
+  border-radius: 8px; padding: 10px 16px;
+  font-size: 13px; color: var(--text-primary);
+  z-index: 2000; opacity: 0;
+  transition: opacity 250ms; pointer-events: none;
+  white-space: nowrap;
+}
+.hazard-toast--visible { opacity: 1; }
