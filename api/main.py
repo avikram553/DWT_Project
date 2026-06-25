@@ -4,8 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from api.routes import regions, accidents, aggregates, zones, metadata
 
 app = FastAPI(
-    title="DBW Accident Data API",
-    description="Open Data Integration with Accidents in Germany — TU Chemnitz DBW Project",
+    title="GeoCrash DE",
+    description="Spatial Analysis of Traffic Accidents in Germany — TU Chemnitz DWT Project",
     version="0.1.0",
     license_info={"name": "dl-de/by-2-0", "url": "https://www.govdata.de/dl-de/by-2-0"},
 )
