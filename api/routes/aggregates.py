@@ -150,9 +150,9 @@ def accident_rate(
 
     year_clause = ""
     if year is not None:
-        year_clause = "AND a.year = :acc_year"
+        year_clause = "WHERE a.year = :acc_year"
         params["acc_year"] = year
-        params["max_year"] = year
+        params["max_year"] = year + 2  # forward window: allows using 2025 PKW data for 2023/2024 queries
     else:
         params["max_year"] = 9999  # no upper bound
 
@@ -258,7 +258,7 @@ def accident_rate_top(
     if year is not None:
         year_filter = "AND a.year = :acc_year"
         params["acc_year"] = year
-        params["max_ind_year"] = year
+        params["max_ind_year"] = year + 2  # forward window: allows using 2025 PKW/pop data for 2023/2024
     else:
         params["max_ind_year"] = 9999
 

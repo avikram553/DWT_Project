@@ -742,7 +742,7 @@ function formatEqResult(q, res) {
     `<div class="lp-result-row"><span>${label}</span><span>${val}</span></div>`;
 
   if (q === 1 || q === 3 || q === 4) {
-    const yr = res.data?.earliest_year ?? '—';
+    const yr = res.results?.earliest_year ?? '—';
     return row('Earliest year', yr);
   }
   if (q === 2) {
@@ -755,21 +755,21 @@ function formatEqResult(q, res) {
     return row('Pedestrian accidents', Number(total).toLocaleString('en-US'));
   }
   if (q === 6) {
-    return (res.results || []).slice(0, 5).map(r =>
-      row(r.name, `${r.rate_per_100k ?? '—'} / 100k`)
-    ).join('');
+    const rows6 = (res.results || []).filter(r => r.rate_per_100k != null).slice(0, 5);
+    if (!rows6.length) return row('No data', 'indicator_values empty — load Regionalstatistik CSV');
+    return rows6.map(r => row(r.name, `${r.rate_per_100k} / 100k`)).join('');
   }
   if (q === 7) {
-    return (res.results || []).map(r =>
-      row(`${r.rank}. ${r.name}`, `${r.rate_per_100k ?? '—'} / 100k`)
-    ).join('');
+    const rows7 = res.results || [];
+    if (!rows7.length) return row('No data', 'indicator_values empty — load Regionalstatistik CSV');
+    return rows7.map(r => row(`${r.rank}. ${r.name}`, `${r.rate_per_100k ?? '—'} / 100k`)).join('');
   }
   if (q === 8) {
     const top5 = (res.results || [])
       .sort((a, b) => (b.accident_count || 0) - (a.accident_count || 0))
       .slice(0, 5);
     return top5.map((r, i) =>
-      row(`${i + 1}. ${r.name || r.region_id}`, (r.accident_count || 0).toLocaleString('en-US'))
+      row(`${i + 1}. ${r.region_name || r.region_id}`, (r.accident_count || 0).toLocaleString('en-US'))
     ).join('');
   }
   if (q === 9) {

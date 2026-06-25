@@ -442,12 +442,12 @@ Update this table as phases complete:
 
 | Phase | Status | Started | Completed | Notes |
 |---|---|---|---|---|
-| 0. Skeleton | ⬜ Not started | — | — | |
-| 1. Schema | ⬜ Not started | — | — | |
-| 2. Regions ETL | ⬜ Not started | — | — | |
-| 3. Accidents ETL | ⬜ Not started | — | — | |
-| 4. Indicators ETL | ⬜ Not started | — | — | |
-| 5. Aggregation API | ⬜ Not started | — | — | |
+| 0. Skeleton | ✅ Complete | 2026-06-22 | 2026-06-22 | Docker compose + stub API |
+| 1. Schema | ✅ Complete | 2026-06-22 | 2026-06-22 | 9 tables + seeds + indexes |
+| 2. Regions ETL | ✅ Complete | 2026-06-22 | 2026-06-22 | VG250 shapefile, /regions endpoints |
+| 3. Accidents ETL | ✅ Complete | 2026-06-23 | 2026-06-23 | 2016-2024, SHA-1 surrogate for 2016/2018/2019, per-year column mapper |
+| 4. Indicators ETL | ✅ Complete | 2026-06-23 | 2026-06-23 | Regionalstatistik pop+PKW, /regions/{ags}/indicators |
+| 5. Aggregation API | ✅ Complete | 2026-06-23 | 2026-06-23 | All 7 mandatory Qs wired |
 | 6. Hotspots feature | ⬜ Not started | — | — | |
 | 7. Frontend | ⬜ Not started | — | — | |
 | 8. Update script | ⬜ Not started | — | — | |

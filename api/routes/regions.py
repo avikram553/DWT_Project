@@ -24,15 +24,37 @@ def list_regions(
     level: str | None = Query(None, pattern="^(state|district|municipality)$"),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Region)
+    # Use raw SQL to include ST_AsGeoJSON(geom) which ORM mapped_column can't serialize
+    conditions = []
+    params: dict = {}
     if level:
-        stmt = stmt.where(Region.level == level)
-    stmt = stmt.order_by(Region.ags)
-    regions = db.execute(stmt).scalars().all()
-    return envelope(
-        [_region_to_dict(r) for r in regions],
-        sources_used=["regionalatlas"],
-    )
+        conditions.append("level = :level")
+        params["level"] = level
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    rows = db.execute(
+        text(
+            f"""
+            SELECT ags, name, level, parent_ags, population_latest,
+                   ST_AsGeoJSON(geom)::json AS geom
+            FROM regions
+            {where}
+            ORDER BY ags
+            """
+        ),
+        params,
+    ).fetchall()
+    results = [
+        {
+            "ags": r[0],
+            "name": r[1],
+            "level": r[2],
+            "parent_ags": r[3],
+            "population_latest": r[4],
+            "geom": r[5],
+        }
+        for r in rows
+    ]
+    return envelope(results, sources_used=["regionalatlas"])
 
 
 @router.get("/{ags}/indicators")
