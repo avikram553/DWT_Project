@@ -1,6 +1,6 @@
-# DBW Final Project — Implementation Plan
+# GeoCrash DE — Implementation Plan
 
-**Project:** Open Data Integration with Accidents in Germany
+**Project:** GeoCrash DE: Spatial Analysis of Traffic Accidents in Germany
 **Course:** Datenbanken und Web-Techniken (DBW), TU Chemnitz
 **Submission:** 25.06.2026 23:59 via OPAL · Oral exam: 02.07–16.07.2026
 
@@ -117,9 +117,9 @@ Phase 5 verification: `EXPLAIN ANALYZE` on the Q7 query path must show index sca
 
 `min_population` defaults to `50000` (Destatis "Großstädte und Kreise" cutoff). Rate responses surface `min_population_filter`, `population_year_used`, and `requested_year` in metadata so the examiner sees both the threshold and any population-year fallback (see §10).
 
-### Hotspot / safe-zone endpoints
-- `GET /zones/nearest?lat=&lon=&type={hotspot|safe}&year=&limit=`
-- `GET /zones/around?lat=&lon=&year=` *(returns hotspots + safe + your_zone in one call)*
+### Hotspot endpoints
+- `GET /zones/nearest?lat=&lon=&year=&limit=`
+- `GET /zones/around?lat=&lon=&year=` *(returns hotspots + your_zone in one call)*
 
 ### Provenance endpoints (PDF-required)
 - `GET /metadata/sources`
@@ -162,13 +162,12 @@ Every response carries `metadata.license`, `metadata.snapshot_date`, `metadata.s
 | **11. Term paper** | ~5 pages, A4 | PDF in `paper/` ready for submission | First mark |
 | **12. Submission** | ZIP + rehearsal | Outer ZIP uploaded by 25.06.2026 23:59 | Pass/Fail |
 
-**Phase 6 hotspot/safe-zone rule (locked):**
+**Phase 6 hotspot rule (locked):**
 - Grid: **250m × 250m squares in EPSG:25832** (ETRS89 / UTM 32N — the standard metric SRID for Germany). Use `ST_SquareGrid(250, ST_Transform(bbox_4326, 25832))`. **Do NOT grid in EPSG:4326** — `0.0023°` produces ~150×256 m rectangles at German latitudes, breaking the *Unfallhäufungsstellen* defence on zoom-in.
 - Generate over the bounding box of inhabited regions only (`population > 0` join with `regions`)
 - Hotspot: ≥5 accidents in cell during 2022–2024
-- Safe: 0 accidents in cell during 2022–2024 AND centroid in region with `population > 0`
 - Otherwise: unclassified (omitted from `accident_zones` entirely)
-- Cell-to-region attribution: `ST_PointOnSurface(cell_geom_proj)` — same rule for hotspot and safe (boundary cells unambiguous)
+- Cell-to-region attribution: `ST_PointOnSurface(cell_geom_proj)` (boundary cells unambiguous)
 - Storage: persist both `cell_geom_proj` (EPSG:25832, indexed for KNN distance) and `cell_geom` (EPSG:4326, served to frontend). API output transforms back via `ST_Transform(cell_geom_proj, 4326)` if storing only the projected version.
 - GIST index on `accident_zones.cell_geom_proj` for KNN `<->` queries (verify in Phase 1) — KNN distance is only meaningful in a metric SRID
 
@@ -178,9 +177,8 @@ Justification (term paper / oral defence): 250 m chosen because Unfallatlas poin
 
 If Phase 3 slips and Phase 6 is at risk, descend the ladder rung-by-rung — do **not** silently skip. Each rung lists what changes in §4, §5, §7, §14:
 
-1. **Full** (target): hotspot + safe zones, both endpoints (`/zones/nearest`, `/zones/around`), Leaflet rendering both layers.
-2. **Hotspot-only** (saves ~2 h): drop safe-zone classification entirely. `accident_zones.kind` is always `'hotspot'`. Frontend hides the safe-zone toggle. Term paper §7 limitations gains one sentence ("safe-zone classification deferred — would require population-coverage validation across all rural cells"). No schema change beyond CHECK constraint relaxation.
-3. **Static top-100 JSON** (saves ~5 h): no `accident_zones` table at all. Phase 6 outputs a precomputed `frontend/data/hotspots_top100.json` (district name + lat/lon + count). `/zones/nearest` and `/zones/around` removed from §5 and §6. Schema diagram (§4) drops `accident_zones`. Term paper §3 derived-table justification is removed; §5 endpoint section shrinks; rubric bonus likely lost but core Phase 7 demo (map + geolocation + 7 mandatory questions) is preserved.
+1. **Hotspot-only** (target): hotspot zones only, both endpoints (`/zones/nearest`, `/zones/around`), Leaflet rendering hotspot layer.
+2. **Static top-100 JSON** (saves ~5 h): no `accident_zones` table at all. Phase 6 outputs a precomputed `frontend/data/hotspots_top100.json` (district name + lat/lon + count). `/zones/nearest` and `/zones/around` removed from §5 and §6. Schema diagram (§4) drops `accident_zones`. Term paper §3 derived-table justification is removed; §5 endpoint section shrinks; rubric bonus likely lost but core Phase 7 demo (map + geolocation + 7 mandatory questions) is preserved.
 
 If a different cut is needed, **Phase 10's `/healthz/data-quality` endpoint** is a better target than Phase 6: degrade it to a Markdown report in `LIMITATIONS.md` with a `python -m etl.checks` CLI, save ~1 h, zero rubric loss. Phase 6 is a resume differentiator and frontend showpiece — cut last.
 
