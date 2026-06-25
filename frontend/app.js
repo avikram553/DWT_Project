@@ -267,8 +267,30 @@ function renderLegend() {
   ).join('');
   syncLegendVisibility();
 }
-function loadMunicipalities()          { /* Task 6 */ }
-function maybeLoadMunicipalities()     { /* Task 6 */ }
+let municipalitiesLoaded = false;
+
+async function loadMunicipalities() {
+  if (municipalitiesLoaded) return;
+  municipalitiesLoaded = true;
+  try {
+    const res = await apiFetch('/regions?level=municipality');
+    L.geoJSON(
+      res.results.map(r => ({ type: 'Feature', properties: {}, geometry: r.geom })),
+      { style: { fillOpacity: 0, color: 'rgba(255,255,255,0.05)', weight: 0.5 }, interactive: false }
+    ).addTo(layers.municipalities);
+  } catch {
+    municipalitiesLoaded = false; // allow retry
+  }
+}
+
+function maybeLoadMunicipalities() {
+  if (map.getZoom() >= 9) {
+    if (!map.hasLayer(layers.municipalities)) map.addLayer(layers.municipalities);
+    loadMunicipalities();
+  } else {
+    if (map.hasLayer(layers.municipalities)) map.removeLayer(layers.municipalities);
+  }
+}
 function loadHex()                     { /* Task 7 */ }
 function loadPoints()                  { /* Task 8 */ }
 function wirePanelA()                  { /* Task 9 */ }
