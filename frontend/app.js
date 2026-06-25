@@ -119,7 +119,15 @@ function syncLegendVisibility() {
   if (el) el.classList.toggle('legend-hidden', state.activeLayer !== 'choropleth');
 }
 
+function restoreDefaultLayers() {
+  if (!map.hasLayer(layers.choropleth))    map.addLayer(layers.choropleth);
+  if (!map.hasLayer(layers.stateBoundary)) map.addLayer(layers.stateBoundary);
+  if (!map.hasLayer(layers.accidents))     map.addLayer(layers.accidents);
+  layers.hazards.clearLayers();
+}
+
 function switchLayer(name) {
+  restoreDefaultLayers();
   if (state.activeLayer === name) return;
 
   if (state.activeLayer === 'hex') {
@@ -483,6 +491,7 @@ function wireLeftPanel() {
 
   // City jump → flyTo + force point mode so emoji markers appear
   document.getElementById('lp-city').addEventListener('change', e => {
+    restoreDefaultLayers();
     const val = e.target.value;
     if (!val) return;
     const [lat, lon, z] = val.split(',').map(Number);
