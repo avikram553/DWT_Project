@@ -36,5 +36,42 @@ def healthz():
 
 @router.get("/healthz/data-quality")
 def data_quality(db: Session = Depends(get_db)):
-    # TODO Phase 10: run automated plausibility checks
-    return {"status": "not_run", "checks": []}
+    checks = []
+
+    def add_count_check(name: str, sql: str, minimum: int = 1):
+        count = db.execute(text(sql)).scalar() or 0
+        checks.append({
+            "name": name,
+            "status": "ok" if count >= minimum else "error",
+            "count": count,
+            "minimum": minimum,
+        })
+
+    add_count_check("accidents populated", "SELECT COUNT(*) FROM accidents")
+    add_count_check("regions populated", "SELECT COUNT(*) FROM regions")
+    add_count_check("indicators populated", "SELECT COUNT(*) FROM indicators")
+    add_count_check("indicator_values populated", "SELECT COUNT(*) FROM indicator_values")
+    add_count_check("accident_zones populated", "SELECT COUNT(*) FROM accident_zones")
+
+    indicator_years = db.execute(
+        text(
+            """
+            SELECT i.name, MIN(iv.year) AS min_year, MAX(iv.year) AS max_year,
+                   COUNT(*) AS rows, COUNT(DISTINCT iv.region_id) AS regions
+            FROM indicator_values iv
+            JOIN indicators i ON i.id = iv.indicator_id
+            WHERE i.name IN ('population', 'cars_pkw')
+            GROUP BY i.name
+            ORDER BY i.name
+            """
+        )
+    ).mappings().all()
+
+    checks.append({
+        "name": "regionalstatistik coverage",
+        "status": "ok" if len(indicator_years) == 2 else "error",
+        "indicators": [dict(row) for row in indicator_years],
+    })
+
+    status = "ok" if all(check["status"] == "ok" for check in checks) else "degraded"
+    return {"status": status, "checks": checks}

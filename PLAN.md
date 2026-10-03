@@ -442,19 +442,21 @@ Update this table as phases complete:
 |---|---|---|---|---|
 | 0. Skeleton | ✅ Complete | 2026-06-22 | 2026-06-22 | Docker compose + stub API |
 | 1. Schema | ✅ Complete | 2026-06-22 | 2026-06-22 | 9 tables + seeds + indexes |
-| 2. Regions ETL | ✅ Complete | 2026-06-22 | 2026-06-22 | VG250 shapefile, /regions endpoints |
+| 2. Regions ETL | ✅ Complete | 2026-06-22 | 2026-06-23 | VG250 shapefile, /regions endpoints |
 | 3. Accidents ETL | ✅ Complete | 2026-06-23 | 2026-06-23 | 2016-2024, SHA-1 surrogate for 2016/2018/2019, per-year column mapper |
-| 4. Indicators ETL | ✅ Complete | 2026-06-23 | 2026-06-23 | Regionalstatistik pop+PKW, /regions/{ags}/indicators |
+| 4. Indicators ETL | ✅ Complete | 2026-06-23 | 2026-06-25 | Regionalstatistik pop+PKW; extended 06-25 to multi-year population (2016-2024) for Q7 |
 | 5. Aggregation API | ✅ Complete | 2026-06-23 | 2026-06-23 | All 7 mandatory Qs wired |
-| 6. Hotspots feature | ⬜ Not started | — | — | |
-| 7. Frontend | ⬜ Not started | — | — | |
-| 8. Update script | ⬜ Not started | — | — | |
-| 9. API docs | ⬜ Not started | — | — | |
-| 10. Quality checks | ⬜ Not started | — | — | |
-| 11. Term paper | ⬜ Not started | — | — | |
-| 12. Submission | ⬜ Not started | — | — | |
+| 6. Hotspots feature | ✅ Complete | 2026-06-24 | 2026-06-25 | Hotspot/safe-zone KNN endpoints 06-24; `accident_zones` extended to full 2016-2024 coverage + `/zones/nearby-hazards` (500m KNN) 06-25 |
+| 7. Frontend | ✅ Complete | 2026-06-24 | 2026-06-26 | Choropleth + deck.gl hex + point layers, geolocation "Nearby Hazards" flow, 10-query examiner panel, dark glass theme — most-iterated phase (40+ commits) |
+| 8. Update script | ✅ Complete | 2026-06-22 | 2026-06-22 | `etl/update.py` orchestrator shipped with initial skeleton, extended per-source as ETLs landed |
+| 9. API docs | ✅ Complete | 2026-07-06 | 2026-07-06 | `api-docs/openapi.json` exported from live app (`app.openapi()`), 15 paths, title "GeoCrash DE" — not yet committed to git |
+| 10. Quality checks | 🟡 In progress | 2026-06-23 | — | `/healthz/data-quality` endpoint implemented; `LIMITATIONS.md`/`USAGE.md`/`SCHEMA.md` deliverables from §8 folder layout not yet written (partially covered ad hoc by `Challenges.md`) |
+| 11. Term paper | 🟡 In progress | — | — | `paper/term_paper.md` + `.tex` drafted (~293 lines, includes examiner-question cookbook + Swagger figure) but **not yet committed to git**; needs final pass against the ~5-page A4 rubric limit |
+| 12. Submission | ⬜ Not started | — | — | No pre-zip cleanup run yet; working tree currently has uncommitted changes (see note below) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Complete · ⚠️ Blocked
+
+**Uncommitted as of 2026-07-06:** `README.md`, `api/main.py`, `api/routes/aggregates.py`, `api/routes/metadata.py`, `frontend/{app.js,index.html,style.css}`, `.gitignore` are modified but not committed; `CLAUDE.md`, `Challenges.md`, `brainstorms/`, `docs/`, `frontendPlan.md`, `paper/`, and 3 test files (`tests/conftest.py`, `tests/test_database_integrity.py`, `tests/test_spatial_polygons.py`) are untracked. None of this is lost — it just hasn't been committed. Commit before relying on `git log`/`git diff` to describe current state.
 
 ---
 

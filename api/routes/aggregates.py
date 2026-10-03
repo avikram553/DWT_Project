@@ -152,7 +152,7 @@ def accident_rate(
     if year is not None:
         year_clause = "WHERE a.year = :acc_year"
         params["acc_year"] = year
-        params["max_year"] = year + 2  # forward window: allows using 2025 PKW data for 2023/2024 queries
+        params["max_year"] = year
     else:
         params["max_year"] = 9999  # no upper bound
 
@@ -232,6 +232,7 @@ def accident_rate_top(
     year: int | None = None,
     severity: str | None = Query(None, pattern="^(fatal|serious|light)$"),
     denominator: str = Query("population", pattern="^(population|cars_pkw)$"),
+    state: str | None = None,
     limit: int = Query(5, ge=1, le=50),
     min_population: int = Query(50_000, ge=0),
     db: Session = Depends(get_db),
@@ -254,11 +255,17 @@ def accident_rate_top(
         category_filter = "AND a.category = :category"
         params["category"] = severity_map[severity]
 
+    state_prefix = _state_prefix(state)
+    state_clause = ""
+    if state_prefix:
+        state_clause = "AND LEFT(r.ags, 2) = :state_prefix"
+        params["state_prefix"] = state_prefix
+
     year_filter = ""
     if year is not None:
         year_filter = "AND a.year = :acc_year"
         params["acc_year"] = year
-        params["max_ind_year"] = year + 2  # forward window: allows using 2025 PKW/pop data for 2023/2024
+        params["max_ind_year"] = year
     else:
         params["max_ind_year"] = 9999
 
@@ -300,6 +307,7 @@ def accident_rate_top(
             JOIN pop_latest pl ON pl.region_id = r.ags
             LEFT JOIN fatal_counts fc ON fc.region_id = r.ags
             WHERE r.level = :level
+              {state_clause}
               AND pl.population >= :min_pop
             ORDER BY rate_per_100k DESC NULLS LAST
             LIMIT :limit
@@ -329,6 +337,7 @@ def accident_rate_top(
         extra_meta={
             "denominator": denominator,
             "severity": severity,
+            "state": state,
             "requested_year": year,
             "population_year_used": pop_year_used,
             "min_population_filter": min_population,

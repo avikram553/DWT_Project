@@ -762,12 +762,12 @@ class TestNearbyHazards:
             assert zone["kind"] == "hotspot"
 
     def test_nearby_hazards_within_radius(self, api_client):
-        """All returned zones are within 500 m."""
+        """All returned zones are within 10 km."""
         resp = api_client.get(
             f"/zones/nearby-hazards?lat={self.LAT}&lon={self.LON}"
         )
         for zone in resp.json()["results"]:
-            assert zone["distance_m"] <= 500.0
+            assert zone["distance_m"] <= 10000.0
 
     def test_nearby_hazards_lat_out_of_bounds(self, api_client):
         """lat outside Germany → 422."""

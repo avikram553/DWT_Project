@@ -88,7 +88,7 @@ _NEARBY_HAZARDS_SQL = text("""
       AND ST_DWithin(
           az.cell_geom_proj,
           ST_Transform(ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 25832),
-          500
+          10000
       )
     ORDER BY az.cell_geom_proj
           <-> ST_Transform(ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 25832)
@@ -111,8 +111,8 @@ def _row_to_dict(r) -> dict:
 
 @router.get("/nearest")
 def nearest_zones(
-    lat: float = Query(..., ge=47.27, le=55.06),
-    lon: float = Query(..., ge=5.87, le=15.04),
+    lat: float = Query(..., ge=47.27, le=55.06, examples=[52.52]),
+    lon: float = Query(..., ge=5.87, le=15.04, examples=[13.405]),
     year: int | None = None,
     limit: int = Query(5, ge=1, le=50),
     db: Session = Depends(get_db),
@@ -136,8 +136,8 @@ def nearest_zones(
 
 @router.get("/around")
 def zones_around(
-    lat: float = Query(..., ge=47.27, le=55.06),
-    lon: float = Query(..., ge=5.87, le=15.04),
+    lat: float = Query(..., ge=47.27, le=55.06, examples=[52.52]),
+    lon: float = Query(..., ge=5.87, le=15.04, examples=[13.405]),
     year: int | None = None,
     db: Session = Depends(get_db),
 ):
@@ -175,8 +175,8 @@ def zones_around(
 
 @router.get("/nearby-hazards")
 def nearby_hazards(
-    lat: float = Query(..., ge=47.27, le=55.06),
-    lon: float = Query(..., ge=5.87, le=15.04),
+    lat: float = Query(..., ge=47.27, le=55.06, examples=[52.52]),
+    lon: float = Query(..., ge=5.87, le=15.04, examples=[13.405]),
     db: Session = Depends(get_db),
 ):
     rows = db.execute(
@@ -186,5 +186,5 @@ def nearby_hazards(
     return envelope(
         [_row_to_dict(r) for r in rows],
         sources_used=["unfallatlas"],
-        extra_meta={"lat": lat, "lon": lon, "radius_m": 500},
+        extra_meta={"lat": lat, "lon": lon, "radius_m": 10000},
     )
