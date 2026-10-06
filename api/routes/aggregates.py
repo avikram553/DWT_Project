@@ -285,6 +285,15 @@ def accident_rate_top(
                 WHERE iv.year <= :max_ind_year
                 ORDER BY iv.region_id, iv.year DESC
             ),
+            pop_filter AS (
+                SELECT DISTINCT ON (iv.region_id)
+                       iv.region_id,
+                       iv.value AS population
+                FROM indicator_values iv
+                JOIN indicators i ON i.id = iv.indicator_id AND i.name = 'population'
+                WHERE iv.year <= :max_ind_year
+                ORDER BY iv.region_id, iv.year DESC
+            ),
             fatal_counts AS (
                 SELECT a.region_id, COUNT(*) AS cnt
                 FROM accidents a
@@ -305,10 +314,11 @@ def accident_rate_top(
                 END AS rate_per_100k
             FROM regions r
             JOIN pop_latest pl ON pl.region_id = r.ags
+            LEFT JOIN pop_filter pf ON pf.region_id = r.ags
             LEFT JOIN fatal_counts fc ON fc.region_id = r.ags
             WHERE r.level = :level
               {state_clause}
-              AND pl.population >= :min_pop
+              AND (:min_pop = 0 OR pf.population >= :min_pop)
             ORDER BY rate_per_100k DESC NULLS LAST
             LIMIT :limit
             """

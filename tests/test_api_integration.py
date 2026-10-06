@@ -7,6 +7,7 @@ for all 5 route modules: regions, accidents, aggregates, zones, metadata.
 """
 import pytest
 from datetime import date
+from sqlalchemy import text
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -522,6 +523,38 @@ class TestAccidentRateTopEndpoints:
         assert resp.status_code == 200
         results = resp.json()["results"]
         assert len(results) <= 5
+
+    def test_min_population_filters_on_population_for_cars_denominator(self, api_client, db):
+        """min_population must filter on population, not on the car count denominator."""
+        year, min_pop = 2023, 300_000
+        expected = db.execute(
+            text(
+                """
+                WITH latest AS (
+                    SELECT DISTINCT ON (iv.region_id, i.name)
+                           iv.region_id, i.name, iv.value
+                    FROM indicator_values iv
+                    JOIN indicators i ON i.id = iv.indicator_id
+                    WHERE i.name IN ('population', 'cars_pkw') AND iv.year <= :year
+                    ORDER BY iv.region_id, i.name, iv.year DESC
+                )
+                SELECT COUNT(*)
+                FROM regions r
+                JOIN latest p ON p.region_id = r.ags AND p.name = 'population'
+                JOIN latest c ON c.region_id = r.ags AND c.name = 'cars_pkw'
+                WHERE r.level = 'district' AND p.value >= :min_pop
+                """
+            ),
+            {"year": year, "min_pop": min_pop},
+        ).scalar()
+
+        resp = api_client.get(
+            "/aggregates/accident-rate/top"
+            f"?level=district&denominator=cars_pkw&year={year}"
+            f"&limit=50&min_population={min_pop}"
+        )
+        assert resp.status_code == 200
+        assert len(resp.json()["results"]) == min(50, expected)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

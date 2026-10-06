@@ -6,7 +6,6 @@
 
 # Data
 rawData/
-frontend/data/
 
 # Python
 __pycache__/

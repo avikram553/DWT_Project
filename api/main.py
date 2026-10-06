@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -106,4 +108,4 @@ app.include_router(aggregates.router)
 app.include_router(zones.router)
 app.include_router(metadata.router)
 
-app.mount("/", StaticFiles(directory="/app/frontend", html=True), name="frontend")
+app.mount("/", StaticFiles(directory=Path(__file__).resolve().parent.parent / "frontend", html=True), name="frontend")

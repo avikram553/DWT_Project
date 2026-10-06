@@ -223,7 +223,7 @@ function boundsAround(lat, lon, radiusM) {
 const ZOOM_HEX   = 9;
 const ZOOM_POINT = 12;
 const HYSTERESIS = 0.5;
-const HEX_POINT_LIMIT = 5000;
+const HEX_POINT_LIMIT = 50000;
 
 function targetLayerForZoom(z, currentLayer = state.activeLayer) {
   const hexExit = ZOOM_HEX - HYSTERESIS;
@@ -374,7 +374,8 @@ function reloadActiveLayer() {
   else if (state.activeLayer === 'point') loadPoints();
   else if (state.activeLayer === 'nearby' && state.nearbyLocation) {
     const { lat, lon, radiusM } = state.nearbyLocation;
-    renderNearbyAccidents(lat, lon, radiusM, false);
+    renderNearbyAccidents(lat, lon, radiusM, false)
+      .catch(() => showToast('Could not load accidents within 500 m.'));
   }
   updateKPIs();
 }
@@ -564,10 +565,10 @@ async function loadHex() {
 
   let res;
   try { res = await apiFetch(url, { cache: false, signal }); } catch { setMapLoading(false); return; }
-  if ((res.results || []).length >= HEX_POINT_LIMIT && map.getZoom() < ZOOM_POINT) {
+  // Rows are ordered by insertion, so a capped result is not a fair viewport sample.
+  if ((res.results || []).length >= HEX_POINT_LIMIT) {
+    deckApi.setProps({ layers: [] });
     setMapLoading(false);
-    syncModeControl('auto');
-    switchLayer('choropleth');
     updateDynamicStat('Zoom in', 'for hex detail');
     return;
   }
@@ -1082,7 +1083,7 @@ function enterNearbyHazardsMode(lat, lon, radiusM) {
   syncLegendVisibility();
 }
 
-async function fetchNearbyAccidents(lat, lon, radiusM) {
+async function fetchNearbyAccidents(lat, lon, radiusM, signal) {
   const b = boundsAround(lat, lon, radiusM);
   const pageSize = 5000;
   const maxRows = 20000;
@@ -1092,7 +1093,7 @@ async function fetchNearbyAccidents(lat, lon, radiusM) {
     let url = `/accidents?lat_min=${b.south}&lat_max=${b.north}&lon_min=${b.west}&lon_max=${b.east}&limit=${pageSize}&offset=${offset}`;
     if (state.category)    url += `&category=${state.category}`;
     if (state.participant) url += `&participant=${state.participant}`;
-    const res = await apiFetch(url, { cache: false, signal: activeViewportSignal() });
+    const res = await apiFetch(url, { cache: false, signal });
     const rows = res.results || [];
 
     for (const acc of rows) {
@@ -1110,11 +1111,19 @@ async function fetchNearbyAccidents(lat, lon, radiusM) {
 async function renderNearbyAccidents(lat, lon, radiusM, flyToLocation) {
   setMapLoading(true, 'Loading 500 m accidents');
   layers.hazards.clearLayers();
+  const signal = activeViewportSignal();
+  const detailZoom = 16;
+  if (flyToLocation) map.flyTo([lat, lon], detailZoom, { duration: 1.2 });
 
   try {
-    const accidents = await fetchNearbyAccidents(lat, lon, radiusM);
-    const detailZoom = 16;
-    if (flyToLocation) map.flyTo([lat, lon], detailZoom, { duration: 1.2 });
+    let accidents;
+    try {
+      accidents = await fetchNearbyAccidents(lat, lon, radiusM, signal);
+    } catch (err) {
+      // A newer load superseded this one and will render instead.
+      if (err.name === 'AbortError') return;
+      throw err;
+    }
 
     L.circle([lat, lon], {
       radius: radiusM,
