@@ -89,20 +89,15 @@ def _load_level(
     sf = shapefile.Reader(shp=shp_data, dbf=dbf_data, shx=shx_data)
     fields = [f[0] for f in sf.fields[1:]]  # skip deletion flag
 
-    # VG250 GF field meanings:
-    #   GF=1: sea-only area → always skip
-    #   GF=2: land area, no water → preferred for coastal regions
-    #   GF=3: land + inland water, no sea
-    #   GF=4: total area (land + inland water + sea) → fallback
-    # We collect the lowest-GF geometry per AGS so coastal regions use
-    # land-only shapes instead of shapes that extend into the sea.
-    best: dict[str, dict] = {}  # ags → best record
+    # VG250 GF (Geofaktor): 1/2 = water without/with structure, 3/4 = land
+    # without/with structure. GF=4 is the region's land polygon; every AGS
+    # has exactly one. GF=2 records are small water fragments (e.g. Bodensee).
+    best: dict[str, dict] = {}  # ags → record
 
     for shape_rec in sf.iterShapeRecords():
         props = dict(zip(fields, shape_rec.record))
-        gf = props.get("GF")
-        if gf == 1:
-            continue  # sea-only area, never use
+        if props.get("GF") != 4:
+            continue
 
         ags = extract_ags(props, level)
         if not ags or len(ags) < 2:
@@ -114,17 +109,12 @@ def _load_level(
         if not name:
             continue
 
-        # Prefer lower GF: land-only (GF=2) beats total-including-sea (GF=4)
-        if ags in best and best[ags]["gf"] <= (gf or 99):
-            continue
-
         raw_geom = shapely_shape(shape_rec.shape.__geo_interface__)
         geom_4326 = _reproject_geom(raw_geom)
         if geom_4326.geom_type == "Polygon":
             geom_4326 = MultiPolygon([geom_4326])
 
         best[ags] = {
-            "gf": gf or 99,
             "name": name,
             "population": props.get("EWZ"),
             "parent": parent_ags_for(ags, level),

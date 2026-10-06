@@ -337,12 +337,12 @@ class TestAccidentZones:
             assert 249 < height < 251, f"Cell height {height} m is not ~250 m"
 
     def test_zone_kinds_valid(self, db):
-        """All zone kinds must be 'hotspot'."""
+        """Zone kinds must match the schema CHECK: 'hotspot' or 'safe'."""
         rows = db.execute(text(
             "SELECT DISTINCT kind FROM accident_zones"
         )).fetchall()
         kinds = {r[0] for r in rows}
-        assert kinds.issubset({"hotspot"}), f"Unexpected zone kinds: {kinds}"
+        assert kinds.issubset({"hotspot", "safe"}), f"Unexpected zone kinds: {kinds}"
 
     def test_hotspot_counts_nonzero(self, db):
         """Hotspot zones must have accident_count ≥ 5 (HOTSPOT_MIN)."""
