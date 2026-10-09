@@ -144,6 +144,7 @@ const POINT_EMOJI_MARKER_LIMITS = [
 ];
 
 let districtGeoCache = null;
+let choroplethSeq = 0;
 let districtTrendCache = null;
 let municipalityBoundsKey = null;
 let activeViewportController = null;
@@ -167,7 +168,7 @@ async function apiFetch(path, options = {}) {
       localStorage.removeItem(persistentKey);
     }
   }
-  const res = await fetch(`http://localhost:8000${path}`, { signal });
+  const res = await fetch(path, { signal });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
   const data = await res.json();
   if (cache) apiCache.set(path, data);
@@ -224,6 +225,7 @@ const ZOOM_HEX   = 9;
 const ZOOM_POINT = 12;
 const HYSTERESIS = 0.5;
 const HEX_POINT_LIMIT = 50000;
+const POINT_RENDER_LIMIT = 2000;
 
 function targetLayerForZoom(z, currentLayer = state.activeLayer) {
   const hexExit = ZOOM_HEX - HYSTERESIS;
@@ -295,6 +297,8 @@ function switchLayer(name) {
     syncLegendVisibility();
     return;
   }
+  // Stop a request from the previous view (e.g. a slow 500 m fetch) from drawing over this one.
+  if (activeViewportController) activeViewportController.abort();
 
   if (state.activeLayer === 'hex') {
     deckCanvas.style.opacity = '0';
@@ -411,7 +415,7 @@ async function checkApiStatus() {
 // ── Stubs filled by Tasks 5–11 ─────────────────────────────────────────────
 async function loadChoropleth() {
   setMapLoading(true, 'Loading districts');
-  layers.choropleth.clearLayers();
+  const seq = ++choroplethSeq;
 
   let countUrl = `/aggregates/accidents?level=district&year=${state.year}`;
   if (state.category)    countUrl += `&category=${state.category}`;
@@ -424,9 +428,11 @@ async function loadChoropleth() {
       districtGeoCache ?? apiFetch('/data/districts_simplified.json', { persist: true, maxAgeMs: ONE_DAY_MS }).then(r => { districtGeoCache = r; return r; }),
     ]);
   } catch {
-    setMapLoading(false);
+    if (seq === choroplethSeq) setMapLoading(false);
     return;
   }
+  if (seq !== choroplethSeq) return;
+  layers.choropleth.clearLayers();
 
   const lookup = {};
   for (const r of countRes.results) {
@@ -441,7 +447,7 @@ async function loadChoropleth() {
 
   const showLabels = map.getZoom() >= 7;
 
-  L.geoJSON(features, {
+  const districtLayer = L.geoJSON(features, {
     style: feature => ({
       fillColor: scaleColor(lookup[feature.properties.ags] || 0),
       fillOpacity: 0.82,
@@ -454,16 +460,21 @@ async function loadChoropleth() {
         `<strong>${feature.properties.name}</strong><br>${count.toLocaleString('en-US')} accidents`,
         { sticky: true }
       );
-      if (showLabels) {
-        lyr.bindTooltip(feature.properties.name, {
-          permanent: true, className: 'district-label', direction: 'center',
-        });
-      }
       lyr.on('mouseover', () => lyr.setStyle({ color: 'rgba(0,0,0,0.5)', weight: 1.5 }));
       lyr.on('mouseout',  () => lyr.setStyle({ color: 'rgba(0,0,0,0.15)', weight: 0.7 }));
       lyr.on('click', () => showInsightDistrict(feature.properties.ags, feature.properties.name, count));
     },
   }).addTo(layers.choropleth);
+
+  // Separate tooltips: a layer can hold only one, and the count tooltip must stay.
+  if (showLabels && map.hasLayer(layers.choropleth)) {
+    districtLayer.eachLayer(lyr => {
+      L.tooltip({ permanent: true, className: 'district-label', direction: 'center' })
+        .setLatLng(lyr.getCenter())
+        .setContent(lyr.feature.properties.name)
+        .addTo(layers.choropleth);
+    });
+  }
 
   renderLegend();
   setMapLoading(false);
@@ -542,8 +553,7 @@ function buildHexLayer(data) {
 }
 
 async function loadHex() {
-  if (map.getZoom() < ZOOM_HEX - HYSTERESIS) {
-    syncModeControl('auto');
+  if (state.mode === 'auto' && map.getZoom() < ZOOM_HEX - HYSTERESIS) {
     switchLayer('choropleth');
     return;
   }
@@ -557,6 +567,8 @@ async function loadHex() {
     showToast('3D hex rendering is unavailable in this browser.');
     return;
   }
+  // The view may have changed while deck.gl was loading.
+  if (state.activeLayer !== 'hex') return;
   const signal = activeViewportSignal();
   const b = map.getBounds();
   let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}&limit=${HEX_POINT_LIMIT}`;
@@ -566,7 +578,7 @@ async function loadHex() {
   let res;
   try { res = await apiFetch(url, { cache: false, signal }); } catch { if (!signal.aborted) setMapLoading(false); return; }
   // Rows are ordered by insertion, so a capped result is not a fair viewport sample.
-  if ((res.results || []).length >= HEX_POINT_LIMIT) {
+  if (res.metadata.total_count > HEX_POINT_LIMIT) {
     deckApi.setProps({ layers: [] });
     setMapLoading(false);
     updateDynamicStat('Zoom in', 'for hex detail');
@@ -658,8 +670,7 @@ function renderSinglePoint(acc, useEmojiMarker = false) {
 }
 
 async function loadPoints() {
-  if (map.getZoom() < ZOOM_POINT - HYSTERESIS && !state.cityBounds) {
-    syncModeControl('auto');
+  if (state.mode === 'auto' && map.getZoom() < ZOOM_POINT - HYSTERESIS && !state.cityBounds) {
     switchLayer(targetLayerForZoom(map.getZoom()));
     return;
   }
@@ -672,13 +683,20 @@ async function loadPoints() {
   const north = cb ? cb.north : map.getBounds().getNorth();
   const west  = cb ? cb.west  : map.getBounds().getWest();
   const east  = cb ? cb.east  : map.getBounds().getEast();
-  let url = `/accidents?year=${state.year}&lat_min=${south}&lat_max=${north}&lon_min=${west}&lon_max=${east}&limit=2000`;
+  let url = `/accidents?year=${state.year}&lat_min=${south}&lat_max=${north}&lon_min=${west}&lon_max=${east}&limit=${HEX_POINT_LIMIT}`;
   if (state.category)    url += `&category=${state.category}`;
   if (state.participant) url += `&participant=${state.participant}`;
 
   let res;
   try { res = await apiFetch(url, { cache: false, signal }); } catch { if (!signal.aborted) setMapLoading(false); return; }
-  const accidents = res.results;
+  const total = res.metadata.total_count;
+  if (total > HEX_POINT_LIMIT) {
+    setMapLoading(false);
+    updateDynamicStat('Zoom in', `${total.toLocaleString('en-US')} in viewport`);
+    return;
+  }
+  // API rows are in insertion order, so draw a uniform random sample rather than the first rows.
+  const accidents = sampleRows(res.results, POINT_RENDER_LIMIT);
   const markers = [];
   const useEmojiMarkers = shouldUseEmojiMarkers(accidents.length);
 
@@ -687,8 +705,22 @@ async function loadPoints() {
   }
   L.layerGroup(markers).addTo(layers.accidents);
 
-  updateDynamicStat(accidents.length.toLocaleString('en-US'), 'in viewport');
+  if (accidents.length < total) {
+    updateDynamicStat(accidents.length.toLocaleString('en-US'), `sampled of ${total.toLocaleString('en-US')}`);
+  } else {
+    updateDynamicStat(total.toLocaleString('en-US'), 'in viewport');
+  }
   setMapLoading(false);
+}
+
+function sampleRows(rows, n) {
+  if (rows.length <= n) return rows;
+  const copy = rows.slice();
+  for (let i = 0; i < n; i++) {
+    const j = i + Math.floor(Math.random() * (copy.length - i));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
 }
 
 function showDetailCard(acc, latlng) {
@@ -1017,7 +1049,7 @@ async function showInsightHex(object) {
 
 // ── Nearby Hazards ─────────────────────────────────────────────────────────
 function cellCentroid(cellGeom) {
-  const ring = cellGeom.coordinates[0];
+  const ring = cellGeom.coordinates[0].slice(0, -1);  // GeoJSON rings repeat the first vertex
   const lon = ring.reduce((s, p) => s + p[0], 0) / ring.length;
   const lat = ring.reduce((s, p) => s + p[1], 0) / ring.length;
   return [lat, lon];
@@ -1174,15 +1206,19 @@ async function loadNearbyHazards() {
       const lat = pos.coords.latitude;
       const lon = pos.coords.longitude;
       const radiusM = 500;
+      // Same bounds the API validates for zone lookups.
+      if (lat < 47.27 || lat > 55.06 || lon < 5.87 || lon > 15.04) {
+        showToast('Your location is outside Germany.');
+        btn.textContent = '📍 500 m Accidents';
+        btn.disabled = false;
+        return;
+      }
       enterNearbyHazardsMode(lat, lon, radiusM);
 
       try {
         await renderNearbyAccidents(lat, lon, radiusM, true);
-      } catch (err) {
-        const msg = String(err).includes('422')
-          ? 'Your location is outside Germany.'
-          : 'Could not load accidents within 500 m.';
-        showToast(msg);
+      } catch {
+        showToast('Could not load accidents within 500 m.');
       }
       btn.textContent = '📍 500 m Accidents';
       btn.disabled = false;
@@ -1263,7 +1299,7 @@ const EQ_QUERIES = {
   2: ({year})        => apiFetch(`/aggregates/accidents?state=SN&year=${year}`),
   3: ()              => apiFetch('/aggregates/accidents?state=NW&aggregate=earliest_year'),
   4: ()              => apiFetch('/aggregates/accidents?state=MV&aggregate=earliest_year'),
-  5: ({year, city})  => apiFetch(`/accidents?ags=${city}&year=${year}&participant=pedestrian`, { persist: true, maxAgeMs: ONE_DAY_MS }),
+  5: ({year, city})  => apiFetch(`/accidents?ags=${city}&year=${year}&participant=pedestrian&limit=1`, { persist: true, maxAgeMs: ONE_DAY_MS }),
   // Multi-source: joins accident data with registered car counts
   6: ({year, state}) => {
     const stateClause = state ? `&state=${state}` : '';
@@ -1277,7 +1313,7 @@ const EQ_QUERIES = {
   // Raw fatal count top-5 (single-source, client-sorted)
   8: ({year})        => apiFetch(`/aggregates/accidents?level=district&year=${year}&category=1`),
   // Bicycle accidents in selected city + vehicle
-  9: ({year, city, vehicle}) => apiFetch(`/accidents?ags=${city}&year=${year}&participant=${vehicle}`, { persist: true, maxAgeMs: ONE_DAY_MS }),
+  9: ({year, city, vehicle}) => apiFetch(`/accidents?ags=${city}&year=${year}&participant=${vehicle}&limit=1`, { persist: true, maxAgeMs: ONE_DAY_MS }),
   // Bonus: zero-accident municipalities — uses PostGIS spatial join on backend
   10: ({year, state}) => apiFetch(`/aggregates/zero-accident-regions?level=municipality&state=${state}&year=${year}`),
 };

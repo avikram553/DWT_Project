@@ -73,6 +73,9 @@
             "required": true,
             "schema": {
               "type": "string",
+              "examples": [
+                "11000"
+              ],
               "title": "Ags"
             }
           }
@@ -113,6 +116,9 @@
             "required": true,
             "schema": {
               "type": "string",
+              "examples": [
+                "11000"
+              ],
               "title": "Ags"
             }
           }
@@ -145,7 +151,7 @@
           "accidents"
         ],
         "summary": "List Accidents",
-        "description": "List accidents with optional filters.\nQ5: state=BE&year=2023&participant=pedestrian \u2192 pedestrian accidents in Berlin 2023.\nbbox: lat_min, lat_max, lon_min, lon_max \u2192 spatial filter to map viewport.\nlimit: omit or set to 0 to return all matching rows (no cap).",
+        "description": "List accidents with optional filters.\nQ5: state=BE&year=2023&participant=pedestrian \u2192 pedestrian accidents in Berlin 2023.\nbbox: lat_min, lat_max, lon_min, lon_max \u2192 spatial filter to map viewport.\nPaged by limit/offset; metadata.total_count is the number of all matching rows.",
         "operationId": "list_accidents_accidents_get",
         "parameters": [
           {
@@ -305,15 +311,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "integer",
+              "maximum": 50000,
+              "minimum": 1,
+              "default": 5000,
               "title": "Limit"
             }
           },
@@ -768,6 +769,9 @@
               "type": "number",
               "maximum": 55.06,
               "minimum": 47.27,
+              "examples": [
+                52.52
+              ],
               "title": "Lat"
             }
           },
@@ -779,6 +783,9 @@
               "type": "number",
               "maximum": 15.04,
               "minimum": 5.87,
+              "examples": [
+                13.405
+              ],
               "title": "Lon"
             }
           },
@@ -849,6 +856,9 @@
               "type": "number",
               "maximum": 55.06,
               "minimum": 47.27,
+              "examples": [
+                52.52
+              ],
               "title": "Lat"
             }
           },
@@ -860,6 +870,9 @@
               "type": "number",
               "maximum": 15.04,
               "minimum": 5.87,
+              "examples": [
+                13.405
+              ],
               "title": "Lon"
             }
           },
@@ -918,6 +931,9 @@
               "type": "number",
               "maximum": 55.06,
               "minimum": 47.27,
+              "examples": [
+                52.52
+              ],
               "title": "Lat"
             }
           },
@@ -929,6 +945,9 @@
               "type": "number",
               "maximum": 15.04,
               "minimum": 5.87,
+              "examples": [
+                13.405
+              ],
               "title": "Lon"
             }
           }

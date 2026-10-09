@@ -29,7 +29,7 @@ def list_accidents(
     lat_max: float | None = Query(None, ge=-90, le=90),
     lon_min: float | None = Query(None, ge=-180, le=180),
     lon_max: float | None = Query(None, ge=-180, le=180),
-    limit: int | None = Query(None, ge=1),
+    limit: int = Query(5000, ge=1, le=50000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
@@ -37,10 +37,10 @@ def list_accidents(
     List accidents with optional filters.
     Q5: state=BE&year=2023&participant=pedestrian → pedestrian accidents in Berlin 2023.
     bbox: lat_min, lat_max, lon_min, lon_max → spatial filter to map viewport.
-    limit: omit or set to 0 to return all matching rows (no cap).
+    Paged by limit/offset; metadata.total_count is the number of all matching rows.
     """
     conditions = []
-    params: dict = {"offset": offset}
+    params: dict = {"offset": offset, "limit": limit}
 
     if ags:
         conditions.append("region_id = :ags")
@@ -83,12 +83,7 @@ def list_accidents(
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    # Build LIMIT/OFFSET clause — omit LIMIT when not requested
-    if limit is not None:
-        params["limit"] = limit
-        limit_clause = "LIMIT :limit OFFSET :offset"
-    else:
-        limit_clause = "OFFSET :offset"
+    total_count = db.execute(text(f"SELECT count(*) FROM accidents {where}"), params).scalar()
 
     rows = db.execute(
         text(
@@ -101,7 +96,7 @@ def list_accidents(
             FROM accidents
             {where}
             ORDER BY year, id
-            {limit_clause}
+            LIMIT :limit OFFSET :offset
             """
         ),
         params,
@@ -135,5 +130,5 @@ def list_accidents(
     return envelope(
         results,
         sources_used=["unfallatlas"],
-        extra_meta={"total_count": len(results), "offset": offset},
+        extra_meta={"total_count": total_count, "limit": limit, "offset": offset},
     )

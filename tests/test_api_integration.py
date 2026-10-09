@@ -324,6 +324,31 @@ class TestAccidentsEndpoints:
         assert "offset" in meta
         assert isinstance(meta["total_count"], int) and meta["total_count"] >= 0
 
+    def test_total_count_is_all_matches_not_page_size(self, api_client, db):
+        """total_count counts every matching row, independent of limit."""
+        expected = db.execute(
+            text("SELECT count(*) FROM accidents WHERE year = 2023 AND LEFT(region_id, 2) = '11'")
+        ).scalar()
+        resp = api_client.get("/accidents?state=BE&year=2023&limit=10")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["results"]) == 10
+        assert body["metadata"]["total_count"] == expected
+        assert body["metadata"]["limit"] == 10
+
+    def test_default_limit_caps_response(self, api_client):
+        """Omitting limit returns at most the default page, not every row."""
+        resp = api_client.get("/accidents?year=2023")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["results"]) == body["metadata"]["limit"] == 5000
+        assert body["metadata"]["total_count"] > 5000
+
+    @pytest.mark.parametrize("limit", [0, 50001])
+    def test_limit_out_of_range_rejected(self, api_client, limit):
+        resp = api_client.get(f"/accidents?limit={limit}")
+        assert resp.status_code == 422
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 5. AGGREGATES ENDPOINTS
