@@ -1,4 +1,4 @@
-"""Write simplified state/district boundary snapshots served from frontend/data/."""
+"""Write the static JSON snapshots served from frontend/data/."""
 from __future__ import annotations
 
 import json
@@ -46,8 +46,34 @@ def write_region_snapshots(db: Session) -> None:
         print(f"[snapshots] {filename}: {len(rows)} {level}s")
 
 
+def write_year_summary(db: Session) -> None:
+    rows = db.execute(
+        text(
+            """
+            SELECT year,
+                   COUNT(*)                                AS total,
+                   COUNT(*) FILTER (WHERE category = 1)    AS fatal,
+                   COUNT(*) FILTER (WHERE category = 2)    AS serious,
+                   COUNT(*) FILTER (WHERE category = 3)    AS minor
+            FROM accidents
+            GROUP BY year
+            ORDER BY year
+            """
+        )
+    ).mappings().all()
+    results = [dict(r) for r in rows]
+    body = envelope(
+        results,
+        sources_used=["unfallatlas"],
+        extra_meta={"state": None, "total_count": sum(r["total"] for r in results)},
+    )
+    (OUT_DIR / "year_summary.json").write_text(json.dumps(body, separators=(",", ":")))
+    print(f"[snapshots] year_summary.json: {len(results)} years")
+
+
 if __name__ == "__main__":
     from api.db import SessionLocal
 
     with SessionLocal() as session:
         write_region_snapshots(session)
+        write_year_summary(session)

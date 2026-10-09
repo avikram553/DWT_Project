@@ -564,7 +564,7 @@ async function loadHex() {
   if (state.participant) url += `&participant=${state.participant}`;
 
   let res;
-  try { res = await apiFetch(url, { cache: false, signal }); } catch { setMapLoading(false); return; }
+  try { res = await apiFetch(url, { cache: false, signal }); } catch { if (!signal.aborted) setMapLoading(false); return; }
   // Rows are ordered by insertion, so a capped result is not a fair viewport sample.
   if ((res.results || []).length >= HEX_POINT_LIMIT) {
     deckApi.setProps({ layers: [] });
@@ -677,7 +677,7 @@ async function loadPoints() {
   if (state.participant) url += `&participant=${state.participant}`;
 
   let res;
-  try { res = await apiFetch(url, { cache: false, signal }); } catch { setMapLoading(false); return; }
+  try { res = await apiFetch(url, { cache: false, signal }); } catch { if (!signal.aborted) setMapLoading(false); return; }
   const accidents = res.results;
   const markers = [];
   const useEmojiMarkers = shouldUseEmojiMarkers(accidents.length);
@@ -1069,7 +1069,6 @@ function enterNearbyHazardsMode(lat, lon, radiusM) {
 
   layers.choropleth.clearLayers();
   layers.municipalities.clearLayers();
-  layers.stateBoundary.clearLayers();
   layers.accidents.clearLayers();
   layers.hazards.clearLayers();
 
@@ -1268,7 +1267,7 @@ const EQ_QUERIES = {
   // Multi-source: joins accident data with registered car counts
   6: ({year, state}) => {
     const stateClause = state ? `&state=${state}` : '';
-    return apiFetch(`/aggregates/accident-rate/top?level=district&denominator=cars_pkw&year=${year}&limit=5${stateClause}`);
+    return apiFetch(`/aggregates/accident-rate/top?level=district&denominator=cars_pkw&year=${year}&limit=5&min_population=0${stateClause}`);
   },
   // Multi-source: joins accident data with population figures
   7: ({year, severity}) => {

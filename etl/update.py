@@ -43,6 +43,8 @@ def main():
             print("[update] Running accidents ETL...")
             result = run_accidents_etl(db, specific_year=args.year)
             print(f"[update] Accidents done: {result}")
+            from etl.frontend_snapshots import write_year_summary
+            write_year_summary(db)
 
         # Phase 4: population and PKW indicators
         if args.source is None or args.source == "regionalstatistik":

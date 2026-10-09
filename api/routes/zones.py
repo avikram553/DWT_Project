@@ -70,6 +70,8 @@ _YOUR_ZONE_SQL = text("""
 """)
 
 
+NEARBY_RADIUS_M = 500
+
 _NEARBY_HAZARDS_SQL = text("""
     SELECT az.kind,
            az.accident_count,
@@ -88,7 +90,7 @@ _NEARBY_HAZARDS_SQL = text("""
       AND ST_DWithin(
           az.cell_geom_proj,
           ST_Transform(ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 25832),
-          10000
+          :radius_m
       )
     ORDER BY az.cell_geom_proj
           <-> ST_Transform(ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), 25832)
@@ -180,11 +182,11 @@ def nearby_hazards(
     db: Session = Depends(get_db),
 ):
     rows = db.execute(
-        _NEARBY_HAZARDS_SQL, {"lat": lat, "lon": lon}
+        _NEARBY_HAZARDS_SQL, {"lat": lat, "lon": lon, "radius_m": NEARBY_RADIUS_M}
     ).fetchall()
 
     return envelope(
         [_row_to_dict(r) for r in rows],
         sources_used=["unfallatlas"],
-        extra_meta={"lat": lat, "lon": lon, "radius_m": 10000},
+        extra_meta={"lat": lat, "lon": lon, "radius_m": NEARBY_RADIUS_M},
     )
