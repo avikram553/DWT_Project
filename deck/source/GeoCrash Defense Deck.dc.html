@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,400&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1a1b1e; --muted:#6b6e73; --faint:#9a9ca1;
+    --bg:#fcfcfb; --panel:#f4f2ee; --panel2:#efece7; --line:#e3e0da;
+    --accent:#ce3b33; --accent-soft:#f8ebe9;
+    --type-hero:104px; --type-title:60px; --type-subtitle:38px;
+    --type-body:31px; --type-small:25px; --type-mono:24px; --type-kicker:24px;
+    --pad-x:118px; --pad-y:90px;
+    --serif:'Spectral',Georgia,serif; --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{color:#a82e27;}
+</style>
+</helmet>
+<x-import component-from-global-scope="deck-stage" from="./deck-stage.js" width="1920" height="1080" hint-size="100%,100%" data-uneditable="">
+
+<!-- 01 FRONT PAGE -->
+<section data-label="Title" data-screen-label="01" data-speaker-notes="Hi, I'm Aditya. My project is GeoCrash DE — a spatial-analysis platform that fuses four German open-data sources into one PostGIS database, a REST API, and a map. Ten-day solo project for the DBW course." style="padding:0;display:flex;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="flex:1.15;display:flex;flex-direction:column;justify-content:space-between;padding:var(--pad-y) 70px var(--pad-y) var(--pad-x);">
+    <div style="font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.14em;text-transform:uppercase;color:var(--accent);">Term Project · Oral Defense</div>
+    <div>
+      <h1 style="font-family:var(--serif);font-weight:600;font-size:var(--type-hero);line-height:0.98;letter-spacing:-0.01em;margin:0;">GeoCrash <span style="color:var(--accent);">DE</span></h1>
+      <p style="font-family:var(--serif);font-weight:300;font-style:italic;font-size:var(--type-subtitle);color:#3c3d40;margin:26px 0 0;line-height:1.25;max-width:15em;">Spatial analysis of traffic accidents in Germany, 2016–2024</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;font-size:var(--type-small);">
+      <div style="height:1px;background:var(--line);margin-bottom:8px;"></div>
+      <div style="display:flex;gap:12px;"><span style="color:var(--muted);width:230px;font-family:var(--mono);font-size:var(--type-mono);">Author</span><span style="font-weight:500;">Aditya Vikram &nbsp;·&nbsp; 910541</span></div>
+      <div style="display:flex;gap:12px;"><span style="color:var(--muted);width:230px;font-family:var(--mono);font-size:var(--type-mono);">Course</span><span>Datenbanken und Web-Techniken</span></div>
+      <div style="display:flex;gap:12px;"><span style="color:var(--muted);width:230px;font-family:var(--mono);font-size:var(--type-mono);">Institution</span><span>TU Chemnitz &nbsp;·&nbsp; July 2026</span></div>
+    </div>
+  </div>
+  <div style="flex:1;position:relative;background:#f1efeb;border-left:1px solid var(--line);overflow:hidden;">
+    
+    <div style="position: absolute; left: -6px; font-family: var(--mono); font-size: var(--type-mono); color: #4a4b4e; background: rgba(252,252,251,0.92); border: 1px solid var(--line); padding: 9px 14px; top: 1029px">live map — accident choropleth</div>
+  <img src="assets/germany-choropleth.png" alt="Accident-density choropleth of Germany" style="width:100%;height:100%;object-fit:cover;object-position:center;display:block;"></div>
+</section>
+
+<!-- 02 AGENDA -->
+<section data-label="Agenda" data-screen-label="02" data-speaker-notes="Quick roadmap: the why, the design and build — data, database, architecture, API — then the questions I answer, the hard parts, and a live demo." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">02 — Agenda</span><span style="color:var(--muted);">GeoCrash DE</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">What we’ll cover</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 46px;"></div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-auto-flow:column;grid-template-rows:repeat(6,auto);gap:26px 90px;align-content:center;">
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">01</span><span style="font-size:var(--type-body);">Motivation &amp; task</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">02</span><span style="font-size:var(--type-body);">Project goals</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">03</span><span style="font-size:var(--type-body);">Data sources</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">04</span><span style="font-size:var(--type-body);">Design decisions</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">05</span><span style="font-size:var(--type-body);">Database design</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">06</span><span style="font-size:var(--type-body);">System architecture</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">07</span><span style="font-size:var(--type-body);">API design</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">08</span><span style="font-size:var(--type-body);">Mandatory questions</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">09</span><span style="font-size:var(--type-body);">Bonus &amp; student questions</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">10</span><span style="font-size:var(--type-body);">Challenges</span></div>
+    <div style="display:flex;gap:24px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);width:34px;">11</span><span style="font-size:var(--type-body);">Live demo</span></div>
+  </div>
+</section>
+
+<!-- 03 MOTIVATION -->
+<section data-label="Motivation" data-screen-label="03" data-speaker-notes="Germany publishes accidents, population, vehicles and boundaries as separate open datasets — different formats, schedules, and region codes that occasionally get reorganized. None of it is queryable together. The task: fuse at least three official sources into one reproducible, queryable, mappable platform." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">03 — Motivation &amp; Task</span><span style="color:var(--muted);">GeoCrash DE</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">Four open datasets that don’t talk to each other</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 48px;"></div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:70px;">
+    <div>
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);margin-bottom:22px;">The problem</div>
+      <p style="font-size:var(--type-body);line-height:1.42;margin:0;color:#34353a;">Germany publishes accident, population, vehicle-registration and administrative-boundary data as <strong>separate</strong> datasets — separate formats, separate update schedules, and region codes that get reorganized over time.</p>
+      <p style="font-size:var(--type-body);line-height:1.42;margin:24px 0 0;color:#34353a;">None of it is directly queryable together out of the box.</p>
+    </div>
+    <div>
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);margin-bottom:22px;">The task</div>
+      <p style="font-size:var(--type-body);line-height:1.42;margin:0;color:#34353a;">Fuse them into one coherent, queryable, mappable whole — and do it so it can be <strong>regenerated from scratch</strong> on demand, not imported once by hand.</p>
+      <div style="margin-top:30px;display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;gap:16px;align-items:baseline;font-size:var(--type-small);"><span style="color:var(--accent);font-family:var(--mono);">→</span><span>≥&nbsp;3 official German open-data sources</span></div>
+        <div style="display:flex;gap:16px;align-items:baseline;font-size:var(--type-small);"><span style="color:var(--accent);font-family:var(--mono);">→</span><span>Documented REST API + visual frontend</span></div>
+        <div style="display:flex;gap:16px;align-items:baseline;font-size:var(--type-small);"><span style="color:var(--accent);font-family:var(--mono);">→</span><span>Answer 5&nbsp;+&nbsp;2 mandatory examiner questions</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 GOALS -->
+<section data-label="Goals" data-screen-label="04" data-speaker-notes="Seven goals, straight from the rubric: integrate the sources, store in a self-hosted PostGIS database, expose a documented REST API, visualize on a map with geolocation, refresh reproducibly in one command, track full provenance, and answer every mandatory question from real stored data." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">04 — Project Goals</span><span style="color:var(--muted);">GeoCrash DE</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">One reproducible end-to-end platform</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 44px;"></div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:0 90px;align-content:center;">
+    <div style="display:flex;gap:26px;padding:26px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);">01</span><div><div style="font-size:var(--type-body);font-weight:500;">Integrate the sources</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:4px;">≥3 official datasets → one canonical schema</div></div></div>
+    <div style="display:flex;gap:26px;padding:26px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);">05</span><div><div style="font-size:var(--type-body);font-weight:500;">Refresh reproducibly</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:4px;">Fresh DB → loaded in one command</div></div></div>
+    <div style="display:flex;gap:26px;padding:26px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);">02</span><div><div style="font-size:var(--type-body);font-weight:500;">Store it self-hosted</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:4px;">PostgreSQL 16 + PostGIS 3.4</div></div></div>
+    <div style="display:flex;gap:26px;padding:26px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);">06</span><div><div style="font-size:var(--type-body);font-weight:500;">Track full provenance</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:4px;">Source, license, date, file hash per run</div></div></div>
+    <div style="display:flex;gap:26px;padding:26px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);">03</span><div><div style="font-size:var(--type-body);font-weight:500;">Expose a documented API</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:4px;">REST + auto-generated OpenAPI / Swagger</div></div></div>
+    <div style="display:flex;gap:26px;padding:26px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);">07</span><div><div style="font-size:var(--type-body);font-weight:500;">Answer every question</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:4px;">All 7 mandatory questions from stored data</div></div></div>
+    <div style="display:flex;gap:26px;padding:26px 0;"><span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);">04</span><div><div style="font-size:var(--type-body);font-weight:500;">Visualize with geolocation</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:4px;">Interactive map, “near me” queries</div></div></div>
+    <div></div>
+  </div>
+</section>
+
+<!-- 05 DATA SOURCES -->
+<section data-label="Data Sources" data-screen-label="05" data-speaker-notes="The rubric asks for at least three sources; I used four. Unfallatlas gives the ~3M accident points. Regionalatlas gives district and state polygons. Regionalstatistik gives population and registered cars — used as a downloaded CSV snapshot, not the live API, so the demo has no network dependency. And AGS history maps old district codes to current ones. All dl-de/by-2-0." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">05 — Data Sources</span><span style="color:var(--muted);">4 sources &nbsp;·&nbsp; ≥3 required</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">Four official open datasets</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 0;"></div>
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center;">
+    <div style="display:grid;grid-template-columns:0.36fr 0.9fr 0.5fr 0.5fr;gap:0;font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);padding-bottom:18px;border-bottom:1px solid var(--line);">
+      <span>Source</span><span>What it gives</span><span>Format</span><span>Rows</span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.36fr 0.9fr 0.5fr 0.5fr;gap:0;align-items:center;padding:26px 0;border-bottom:1px solid var(--line);">
+      <span style="font-weight:600;font-size:var(--type-body);">Unfallatlas</span>
+      <span style="font-size:var(--type-small);color:#34353a;">Point-level accident events, 2016–2024</span>
+      <span style="font-family:var(--mono);font-size:var(--type-mono);color:var(--muted);">CSV</span>
+      <span style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);">~3,000,000</span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.36fr 0.9fr 0.5fr 0.5fr;gap:0;align-items:center;padding:26px 0;border-bottom:1px solid var(--line);">
+      <span style="font-weight:600;font-size:var(--type-body);">Regionalatlas / VG250</span>
+      <span style="font-size:var(--type-small);color:#34353a;">State &amp; district boundary polygons</span>
+      <span style="font-family:var(--mono);font-size:var(--type-mono);color:var(--muted);">Shapefile</span>
+      <span style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);">~12,000</span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.36fr 0.9fr 0.5fr 0.5fr;gap:0;align-items:center;padding:26px 0;border-bottom:1px solid var(--line);">
+      <span style="font-weight:600;font-size:var(--type-body);">Regionalstatistik</span>
+      <span style="font-size:var(--type-small);color:#34353a;">Population &amp; registered cars per region/year</span>
+      <span style="font-family:var(--mono);font-size:var(--type-mono);color:var(--muted);">CSV snapshot</span>
+      <span style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);">~300,000</span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.36fr 0.9fr 0.5fr 0.5fr;gap:0;align-items:center;padding:26px 0;">
+      <span style="font-weight:600;font-size:var(--type-body);">GV-ISys / AGS history</span>
+      <span style="font-size:var(--type-small);color:#34353a;">Old→new district code mappings (Kreisreform)</span>
+      <span style="font-family:var(--mono);font-size:var(--type-mono);color:var(--muted);">CSV</span>
+      <span style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);">~20</span>
+    </div>
+  </div>
+  <div style="font-size:var(--type-small);color:var(--muted);padding-top:22px;border-top:1px solid var(--line);">All datasets licensed <span style="font-family:var(--mono);color:var(--ink);">dl-de/by-2-0</span> &nbsp;·&nbsp; joined on the AGS region key</div>
+</section>
+
+<!-- 06 DESIGN DECISIONS -->
+<section data-label="Design Decisions" data-screen-label="06" data-speaker-notes="Every tool was a choice with an alternative. PostGIS over NoSQL because three operations are inherently spatial. FastAPI for free OpenAPI docs. Hand-written parameterized SQL over an ORM so the spatial queries stay inspectable. Vanilla JS so an examiner can read app.js with no build step. And precomputed hotspot zones over live aggregation for KNN speed." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">06 — Design Decisions</span><span style="color:var(--muted);">chose → over → because</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">Deliberate, defensible choices</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 0;"></div>
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center;">
+    <div style="display:grid;grid-template-columns:0.7fr 0.7fr 1fr;gap:0;font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);padding-bottom:16px;border-bottom:1px solid var(--line);">
+      <span>Chose</span><span>Over</span><span>Because</span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.7fr 0.7fr 1fr;gap:0;align-items:baseline;padding:22px 0;border-bottom:1px solid var(--line);">
+      <span style="font-weight:600;font-size:var(--type-body);">PostgreSQL + PostGIS</span>
+      <span style="font-size:var(--type-small);color:var(--muted);">MongoDB / MySQL / SQLite</span>
+      <span style="font-size:var(--type-small);color:#34353a;">Only PostGIS gives indexed <span style="font-family:var(--mono);">ST_Contains</span> / KNN / polygon storage out of the box</span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.7fr 0.7fr 1fr;gap:0;align-items:baseline;padding:22px 0;border-bottom:1px solid var(--line);">
+      <span style="font-weight:600;font-size:var(--type-body);">FastAPI</span>
+      <span style="font-size:var(--type-small);color:var(--muted);">Flask / Django</span>
+      <span style="font-size:var(--type-small);color:#34353a;">Free OpenAPI docs from type hints — a rubric deliverable — minimal boilerplate</span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.7fr 0.7fr 1fr;gap:0;align-items:baseline;padding:22px 0;border-bottom:1px solid var(--line);">
+      <span style="font-weight:600;font-size:var(--type-body);">Parameterized raw SQL</span>
+      <span style="font-size:var(--type-small);color:var(--muted);">SQLAlchemy ORM queries</span>
+      <span style="font-size:var(--type-small);color:#34353a;">Spatial predicates &amp; dynamic filters stay clear and <span style="font-family:var(--mono);">EXPLAIN</span>-inspectable</span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.7fr 0.7fr 1fr;gap:0;align-items:baseline;padding:22px 0;border-bottom:1px solid var(--line);">
+      <span style="font-weight:600;font-size:var(--type-body);">Vanilla JS + Leaflet + deck.gl</span>
+      <span style="font-size:var(--type-small);color:var(--muted);">A bundled React / Vue SPA</span>
+      <span style="font-size:var(--type-small);color:#34353a;">No build step — nothing compiled between the examiner and <span style="font-family:var(--mono);">app.js</span></span>
+    </div>
+    <div style="display:grid;grid-template-columns:0.7fr 0.7fr 1fr;gap:0;align-items:baseline;padding:22px 0;">
+      <span style="font-weight:600;font-size:var(--type-body);">Precomputed hotspot zones</span>
+      <span style="font-size:var(--type-small);color:var(--muted);">Live per-request aggregation</span>
+      <span style="font-size:var(--type-small);color:#34353a;">3M-row live spatial aggregation is too slow to pan; KNN stays index-driven</span>
+    </div>
+  </div>
+</section>
+
+<!-- 07 DATABASE DESIGN -->
+<section data-label="Database Design" data-screen-label="07" data-speaker-notes="It looks like many databases but it's one — one PostgreSQL database, one PostGIS extension, nine tables split by grain, not by source. One row of accidents is one crash; one row of regions is one administrative area. Splitting by grain is what lets a single query join accidents against population for a per-capita rate." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">07 — Database Design</span><span style="color:var(--muted);">one database · 9 tables</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">One database, split by grain — not by source</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 40px;"></div>
+  <div style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:24px;">
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);">Fact</div>
+      <div style="border:1px solid var(--accent);background:var(--accent-soft);padding:20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);">accidents</div><div style="font-size:24px;color:var(--muted);margin-top:8px;">one crash</div><div style="font-family:var(--mono);color:var(--accent);font-size:24px;margin-top:6px;">~3,000,000</div></div>
+      <div style="border:1px solid var(--line);background:var(--panel);padding:20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);">indicator_values</div><div style="font-size:24px;color:var(--muted);margin-top:8px;">region+year+indicator</div><div style="font-family:var(--mono);color:var(--muted);font-size:24px;margin-top:6px;">~300,000</div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);">Dimension</div>
+      <div style="border:1px solid var(--accent);background:var(--accent-soft);padding:20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);">regions</div><div style="font-size:24px;color:var(--muted);margin-top:8px;">one admin area</div><div style="font-family:var(--mono);color:var(--accent);font-size:24px;margin-top:6px;">~12,000</div></div>
+      <div style="border:1px solid var(--line);background:var(--panel);padding:16px 20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:24px;">indicators</div></div>
+      <div style="border:1px solid var(--line);background:var(--panel);padding:16px 20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:24px;">lookup_codes</div></div>
+      <div style="border:1px solid var(--line);background:var(--panel);padding:16px 20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:24px;">sources</div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);">Computed</div>
+      <div style="border:1px solid var(--line);background:var(--panel);padding:20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);">accident_zones</div><div style="font-size:24px;color:var(--muted);margin-top:8px;">a classified 250 m cell</div><div style="font-family:var(--mono);color:var(--muted);font-size:24px;margin-top:6px;">~100,000</div><div style="font-size:24px;color:var(--accent);margin-top:10px;">derived from accidents</div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);">Bookkeeping</div>
+      <div style="border:1px solid var(--line);background:var(--panel);padding:16px 20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:24px;">import_runs</div></div>
+      <div style="border:1px solid var(--line);background:var(--panel);padding:16px 20px;border-radius:3px;"><div style="font-family:var(--mono);font-weight:500;font-size:24px;">regions_history</div></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:40px;font-size:var(--type-small);color:var(--muted);padding-top:26px;margin-top:24px;border-top:1px solid var(--line);">
+    <span><span style="color:var(--accent);font-family:var(--mono);">ags TEXT</span> key — leading zeros are meaningful</span>
+    <span>Geometry columns backed by <span style="color:var(--ink);font-family:var(--mono);">GIST</span> indexes</span>
+    <span>Canonical 2024 codes via <span style="color:var(--ink);font-family:var(--mono);">regions_history</span></span>
+  </div>
+</section>
+
+<!-- 08 SYSTEM ARCHITECTURE -->
+<section data-label="Architecture" data-screen-label="08" data-speaker-notes="Four moving parts, each a one-way contract. The ETL only writes rows. The database only stores and answers queries. The API only turns a URL into SQL and results into JSON tagged with provenance. The frontend only turns JSON into pixels. It's two Docker containers plus a static frontend — the right amount of infrastructure for a ten-day project." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">08 — System Architecture</span><span style="color:var(--muted);">4 one-way contracts</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">Data flows one way, end to end</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 54px;"></div>
+  <div style="flex:1;display:flex;align-items:center;gap:0;">
+    <div style="flex:1;display:flex;flex-direction:column;gap:16px;">
+      <div style="border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:26px 22px;min-height:230px;display:flex;flex-direction:column;">
+        <div style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;">Open data</div>
+        <div style="font-size:var(--type-small);margin-top:16px;line-height:1.7;color:#34353a;">Unfallatlas<br>Regionalatlas<br>Regionalstatistik<br>AGS history</div>
+      </div>
+      <div style="font-size:24px;color:var(--muted);text-align:center;">4 government portals</div>
+    </div>
+    <div style="width:78px;text-align:center;color:var(--accent);font-size:34px;font-family:var(--mono);">→</div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:16px;">
+      <div style="border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:26px 22px;min-height:230px;display:flex;flex-direction:column;">
+        <div style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;">ETL</div>
+        <div style="font-size:var(--type-small);margin-top:16px;line-height:1.5;color:#34353a;">Python — download, hash, parse, resolve codes, load</div>
+      </div>
+      <div style="font-size:24px;color:var(--muted);text-align:center;">writes rows only</div>
+    </div>
+    <div style="width:78px;text-align:center;color:var(--accent);font-size:34px;font-family:var(--mono);">→</div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:16px;">
+      <div style="border:1px solid var(--accent);background:var(--accent-soft);border-radius:4px;padding:26px 22px;min-height:230px;display:flex;flex-direction:column;">
+        <div style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;">Database</div>
+        <div style="font-size:var(--type-small);margin-top:16px;line-height:1.5;color:#34353a;">PostgreSQL&nbsp;16<br>+ PostGIS&nbsp;3.4<br>9 tables</div>
+      </div>
+      <div style="font-size:24px;color:var(--muted);text-align:center;">stores &amp; answers</div>
+    </div>
+    <div style="width:78px;text-align:center;color:var(--accent);font-size:34px;font-family:var(--mono);">→</div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:16px;">
+      <div style="border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:26px 22px;min-height:230px;display:flex;flex-direction:column;">
+        <div style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;">API</div>
+        <div style="font-size:var(--type-small);margin-top:16px;line-height:1.5;color:#34353a;">FastAPI — URL → SQL → JSON + provenance</div>
+      </div>
+      <div style="font-size:24px;color:var(--muted);text-align:center;">no state shared</div>
+    </div>
+    <div style="width:78px;text-align:center;color:var(--accent);font-size:34px;font-family:var(--mono);">→</div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:16px;">
+      <div style="border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:26px 22px;min-height:230px;display:flex;flex-direction:column;">
+        <div style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;">Frontend</div>
+        <div style="font-size:var(--type-small);margin-top:16px;line-height:1.5;color:#34353a;">Leaflet + deck.gl + Chart.js map</div>
+      </div>
+      <div style="font-size:24px;color:var(--muted);text-align:center;">JSON → pixels</div>
+    </div>
+  </div>
+  <div style="font-size:var(--type-small);color:var(--muted);padding-top:26px;margin-top:30px;border-top:1px solid var(--line);">Two Docker containers — <span style="font-family:var(--mono);color:var(--ink);">db</span> and <span style="font-family:var(--mono);color:var(--ink);">api</span> — plus a static frontend served by the API container</div>
+</section>
+
+<!-- 09 API DESIGN -->
+<section data-label="API Design" data-screen-label="09" data-speaker-notes="Five routers group the endpoints. Every response is wrapped the same way — results plus a metadata block naming the sources used, their licenses, and the snapshot date — so any consumer, including an examiner poking at Swagger, can see exactly which dataset backs a given answer. The whole API is documented automatically at slash-docs." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">09 — API Design</span><span style="color:var(--muted);">REST · OpenAPI / Swagger</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">Every response carries its provenance</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 44px;"></div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:64px;">
+    <div>
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.09em;color:var(--accent);margin-bottom:24px;">5 routers</div>
+      <div style="display:flex;flex-direction:column;gap:0;">
+        <div style="display:flex;gap:22px;align-items:baseline;padding:15px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);color:var(--ink);width:150px;">regions</span><span style="font-size:24px;color:var(--muted);">catalog, hierarchy, indicators</span></div>
+        <div style="display:flex;gap:22px;align-items:baseline;padding:15px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);color:var(--ink);width:150px;">accidents</span><span style="font-size:24px;color:var(--muted);">filter by state, year, category, participant</span></div>
+        <div style="display:flex;gap:22px;align-items:baseline;padding:15px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);color:var(--ink);width:150px;">aggregates</span><span style="font-size:24px;color:var(--muted);">counts, rates, top-N rankings</span></div>
+        <div style="display:flex;gap:22px;align-items:baseline;padding:15px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);color:var(--ink);width:150px;">zones</span><span style="font-size:24px;color:var(--muted);">nearest / around / nearby-hazards (KNN)</span></div>
+        <div style="display:flex;gap:22px;align-items:baseline;padding:15px 0;"><span style="font-family:var(--mono);font-weight:500;font-size:var(--type-small);color:var(--ink);width:150px;">metadata</span><span style="font-size:24px;color:var(--muted);">sources, import-runs, healthz</span></div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:22px;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.09em;color:var(--accent);">The license envelope</div>
+      <div style="background:#1a1b1e;border-radius:5px;padding:26px 28px;font-family:var(--mono);font-size:24px;line-height:1.75;color:#e8e6e2;flex:1;">
+        <div><span style="color:#8a8d92;">{</span></div>
+        <div style="padding-left:22px;"><span style="color:#e2857f;">"results"</span>: [ … ],</div>
+        <div style="padding-left:22px;"><span style="color:#e2857f;">"metadata"</span>: <span style="color:#8a8d92;">{</span></div>
+        <div style="padding-left:44px;"><span style="color:#e2857f;">"sources_used"</span>: [<span style="color:#a5c2a0;">"unfallatlas"</span>],</div>
+        <div style="padding-left:44px;"><span style="color:#e2857f;">"licenses"</span>: [<span style="color:#a5c2a0;">"dl-de/by-2-0"</span>],</div>
+        <div style="padding-left:44px;"><span style="color:#e2857f;">"snapshot_date"</span>: <span style="color:#a5c2a0;">"2026-07-06"</span>,</div>
+        <div style="padding-left:44px;"><span style="color:#e2857f;">"import_run_ids"</span>: [<span style="color:#c7b28a;">42</span>]</div>
+        <div style="padding-left:22px;color:#8a8d92;">}</div>
+        <div style="color:#8a8d92;">}</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 MANDATORY QUESTIONS -->
+<section data-label="Mandatory Qs" data-screen-label="10" data-speaker-notes="Seven mandatory questions: five answerable from the Unfallatlas alone, plus two that require joining a second dataset. Questions 6 and 7 are the cross-dataset ones — accidents per 100k cars, and the top five districts by fatal-accident rate per 100k inhabitants — which is where the population and vehicle indicators earn their place." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">10 — Mandatory Questions</span><span style="color:var(--muted);">5 + 2</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">All seven, answered from stored data</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 38px;"></div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:0 70px;">
+    <div style="display:flex;flex-direction:column;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px;">Single-source — Unfallatlas</div>
+      <div style="display:flex;gap:20px;align-items:baseline;padding:17px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:24px;">Q1</span><span style="font-size:24px;">Earliest accident year in the dataset</span></div>
+      <div style="display:flex;gap:20px;align-items:baseline;padding:17px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:24px;">Q2</span><span style="font-size:24px;">Personal-injury accidents in Saxony, 2023</span></div>
+      <div style="display:flex;gap:20px;align-items:baseline;padding:17px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:24px;">Q3</span><span style="font-size:24px;">Earliest year for North Rhine-Westphalia</span></div>
+      <div style="display:flex;gap:20px;align-items:baseline;padding:17px 0;border-bottom:1px solid var(--line);"><span style="font-family:var(--mono);color:var(--accent);font-size:24px;">Q4</span><span style="font-size:24px;">Earliest year for Meck.-W. Pomerania</span></div>
+      <div style="display:flex;gap:20px;align-items:baseline;padding:17px 0;"><span style="font-family:var(--mono);color:var(--accent);font-size:24px;">Q5</span><span style="font-size:24px;">Pedestrian accidents in Berlin, 2023</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);margin-bottom:8px;">Cross-dataset — the +2</div>
+      <div style="border:1px solid var(--accent);background:var(--accent-soft);border-radius:4px;padding:24px 26px;margin-bottom:20px;">
+        <div style="display:flex;gap:18px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:24px;">Q6</span><span style="font-size:24px;font-weight:500;">Accidents per 100k registered cars</span></div>
+        <div style="font-size:24px;color:#6a4b48;margin-top:10px;padding-left:38px;">accidents × Regionalstatistik vehicles</div>
+      </div>
+      <div style="border:1px solid var(--accent);background:var(--accent-soft);border-radius:4px;padding:24px 26px;">
+        <div style="display:flex;gap:18px;align-items:baseline;"><span style="font-family:var(--mono);color:var(--accent);font-size:24px;">Q7</span><span style="font-size:24px;font-weight:500;">Top 5 districts by fatal-accident rate</span></div>
+        <div style="font-size:24px;color:#6a4b48;margin-top:10px;padding-left:38px;">per 100k inhabitants, 2024, ≥50k population</div>
+      </div>
+      <div style="margin-top:24px;font-size:24px;color:var(--muted);font-family:var(--mono);">/aggregates/accident-rate/top?…</div>
+    </div>
+  </div>
+</section>
+
+<!-- 11 BONUS QUESTION -->
+<section data-label="Bonus Q" data-screen-label="11" data-speaker-notes="The bonus category is zero cases. My bonus question: which municipalities had zero accidents in a given year? The subtlety is that the answer is the absence of rows — a LEFT JOIN of every region against the accidents of that year, keeping only the regions where no accident matched. It proves the region catalog is complete, not just the accident table." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">11 — Bonus Question</span><span style="color:var(--muted);">bonus category · zero cases</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">Municipalities with zero accidents in a year</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 48px;"></div>
+  <div style="flex:1;display:grid;grid-template-columns:1.05fr 1fr;gap:70px;align-items:center;">
+    <div>
+      <p style="font-size:var(--type-body);line-height:1.42;margin:0 0 26px;color:#34353a;">The “zero cases” bonus asks for something the fact table alone can’t show: the regions where <strong>nothing happened</strong>.</p>
+      <p style="font-size:var(--type-body);line-height:1.42;margin:0;color:#34353a;">The answer is the <strong>absence of rows</strong> — a CTE lists every region that <strong>spatially contains</strong> an accident that year (<span style="font-family:var(--mono);font-size:0.9em;">ST_Within</span>), then <span style="font-family:var(--mono);font-size:0.9em;">NOT&nbsp;IN</span> returns the regions that never appear. It tests that the region catalog is complete, not just the accident data.</p>
+      <div style="margin-top:34px;display:flex;gap:16px;align-items:baseline;font-size:var(--type-small);"><span style="color:var(--accent);font-family:var(--mono);">→</span><span>Only works because <span style="font-family:var(--mono);">regions</span> is a full catalog, independent of accidents</span></div>
+    </div>
+    <div style="background:#1a1b1e;border-radius:5px;padding:28px 30px;font-family:var(--mono);font-size:24px;line-height:1.62;color:#e8e6e2;">
+      <div><span style="color:#e2857f;">WITH</span> accident_regions <span style="color:#e2857f;">AS</span> <span style="color:#8a8d92;">(</span></div>
+      <div style="padding-left:24px;"><span style="color:#e2857f;">SELECT DISTINCT</span> r.ags</div>
+      <div style="padding-left:24px;"><span style="color:#e2857f;">FROM</span> accidents a</div>
+      <div style="padding-left:24px;"><span style="color:#e2857f;">JOIN</span> regions r <span style="color:#8a8d92;">ON</span> <span style="color:#8ab6d6;">ST_Within</span>(a.geom, r.geom)</div>
+      <div style="padding-left:24px;"><span style="color:#e2857f;">WHERE</span> r.level = <span style="color:#c7b28a;">:level</span> <span style="color:#8a8d92;">AND</span> a.year = <span style="color:#c7b28a;">:year</span></div>
+      <div><span style="color:#8a8d92;">)</span></div>
+      <div><span style="color:#e2857f;">SELECT</span> r.ags, r.name</div>
+      <div><span style="color:#e2857f;">FROM</span> regions r</div>
+      <div><span style="color:#e2857f;">WHERE</span> r.level = <span style="color:#c7b28a;">:level</span></div>
+      <div style="padding-left:24px;"><span style="color:#8a8d92;">AND</span> r.ags <span style="color:#e2857f;">NOT IN</span> <span style="color:#8a8d92;">(</span><span style="color:#e2857f;">SELECT</span> ags <span style="color:#e2857f;">FROM</span> accident_regions<span style="color:#8a8d92;">)</span></div>
+      <div><span style="color:#e2857f;">ORDER BY</span> r.name;</div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 STUDENT QUESTION -->
+<section data-label="Student Q" data-screen-label="12" data-speaker-notes="My own self-defined feature turns the map personal. Using browser geolocation, it answers two things: how many accidents happened within 500 metres of where I'm standing, and where the nearest official hotspots are. Both run as KNN nearest-neighbour queries against a GIST index in a metric projection, so distance is real metres and the lookup is instant instead of scanning 3M rows." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">12 — Student Question</span><span style="color:var(--muted);">self-defined feature</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">Nearby Hazards — the map, made personal</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 46px;"></div>
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:minmax(0,1fr);gap:64px;">
+    <div style="display:flex;flex-direction:column;justify-content:center;gap:32px;">
+      <div style="display:flex;gap:24px;align-items:flex-start;">
+        <span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);margin-top:2px;">01</span>
+        <div><div style="font-size:var(--type-body);font-weight:500;">Accidents within 500 m of me</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:6px;line-height:1.4;">Browser geolocation → a metric-radius count of every crash around my position.</div></div>
+      </div>
+      <div style="display:flex;gap:24px;align-items:flex-start;">
+        <span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);margin-top:2px;">02</span>
+        <div><div style="font-size:var(--type-body);font-weight:500;">Nearest official hotspots</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:6px;line-height:1.4;">The closest precomputed <span style="font-family:var(--mono);">Unfallhäufungsstellen</span>, ranked by real distance.</div></div>
+      </div>
+      <div style="display:flex;gap:24px;align-items:flex-start;">
+        <span style="font-family:var(--mono);color:var(--accent);font-size:var(--type-small);margin-top:2px;">03</span>
+        <div><div style="font-size:var(--type-body);font-weight:500;">KNN, not a table scan</div><div style="font-size:var(--type-small);color:var(--muted);margin-top:6px;line-height:1.4;">The <span style="font-family:var(--mono);">&lt;-&gt;</span> operator on a GIST index in EPSG:25832 — index-driven, sub-50 ms.</div></div>
+      </div>
+    </div>
+    <div style="position:relative;min-height:0;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:#eef1f6;">
+      <img src="assets/nearby-hazards-v2.png" alt="Nearby Hazards geolocation view — accidents within 500m" style="width: 814px; height: 659px; object-fit: contain; object-position: center top; display: block">
+      <div style="position: absolute; left: 146px; font-family: var(--mono); font-size: var(--type-mono); color: #3a3b3e; background: rgba(252,252,251,0.92); border: 1px solid var(--line); padding: 9px 14px; top: 623px">“Nearby Hazards” — accidents within 500 m</div>
+    </div>
+  </div>
+</section>
+
+<!-- 13 CHALLENGES -->
+<section data-label="Challenges" data-screen-label="13" data-speaker-notes="Two challenges worth calling out. First, region codes: German AGS codes carry meaningful leading zeros, so they're stored as text, never integers — and districts get merged and split over time, so every accident's raw code is resolved through a history table to its current 2024 equivalent. Second, you can't draw 3M points — so the map shows a different truth at every zoom: a choropleth when out, GPU hex-bins mid-zoom, individual markers only at street level." style="padding:var(--pad-y) var(--pad-x);display:flex;flex-direction:column;background:var(--bg);font-family:var(--sans);color:var(--ink);">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.12em;text-transform:uppercase;">
+    <span style="color:var(--accent);">13 — Challenges</span><span style="color:var(--muted);">problem → solution</span>
+  </div>
+  <h2 style="font-family:var(--serif);font-weight:500;font-size:var(--type-title);margin:30px 0 0;">Two problems that shaped the build</h2>
+  <div style="height:1px;background:var(--line);margin:30px 0 46px;"></div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:56px;">
+    <div style="display:flex;flex-direction:column;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;">Challenge 01</div>
+      <div style="font-family:var(--serif);font-size:36px;font-weight:500;margin:16px 0 24px;line-height:1.15;">Region codes that shift under you</div>
+      <p style="font-size:24px;line-height:1.45;color:#34353a;margin:0 0 22px;"><span style="color:var(--accent);font-weight:500;">Problem —</span> AGS codes carry meaningful leading zeros (<span style="font-family:var(--mono);">“01001”</span> ≠ <span style="font-family:var(--mono);">1001</span>), and districts get merged &amp; split over time (Kreisreform).</p>
+      <p style="font-size:24px;line-height:1.45;color:#34353a;margin:0;"><span style="color:var(--accent);font-weight:500;">Solution —</span> store <span style="font-family:var(--mono);">ags</span> as <span style="font-family:var(--mono);">TEXT</span> everywhere; resolve every raw code to its canonical 2024 form via <span style="font-family:var(--mono);">regions_history</span>, with a structural prefix rule for Hamburg &amp; Berlin.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      <div style="font-family:var(--mono);font-size:var(--type-mono);color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;">Challenge 02</div>
+      <div style="font-family:var(--serif);font-size:36px;font-weight:500;margin:16px 0 24px;line-height:1.15;">You can’t draw 3 million points</div>
+      <p style="font-size:24px;line-height:1.45;color:#34353a;margin:0 0 22px;"><span style="color:var(--accent);font-weight:500;">Problem —</span> rendering every accident at once is both too slow and visually meaningless — a black smear over the whole country.</p>
+      <p style="font-size:24px;line-height:1.45;color:#34353a;margin:0 0 20px;"><span style="color:var(--accent);font-weight:500;">Solution —</span> show a different truth at every zoom, each fetching only the current viewport:</p>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:24px;color:#34353a;">
+        <div style="display:flex;gap:14px;"><span style="font-family:var(--mono);color:var(--accent);width:96px;">far</span><span>choropleth of district counts</span></div>
+        <div style="display:flex;gap:14px;"><span style="font-family:var(--mono);color:var(--accent);width:96px;">mid</span><span>GPU-aggregated deck.gl hex bins</span></div>
+        <div style="display:flex;gap:14px;"><span style="font-family:var(--mono);color:var(--accent);width:96px;">street</span><span>individual canvas markers</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 14 LIVE DEMO -->
+<section data-label="Live Demo" data-screen-label="14" data-speaker-notes="Switch to the browser now — localhost:8000. Run the checklist: zoom the map from choropleth to hex-bins to points; answer a few mandatory questions from the examiner panel; trigger Nearby Hazards with geolocation; and finish in Swagger to show the documented API. Backup screenshots and a recorded video are ready if the network fails." style="padding:0;display:flex;background:#1a1b1e;font-family:var(--sans);color:#f4f2ee;">
+  <div style="flex:1.05;display:flex;flex-direction:column;justify-content:space-between;padding:var(--pad-y) 70px var(--pad-y) var(--pad-x);">
+    <div style="font-family:var(--mono);font-size:var(--type-kicker);letter-spacing:0.14em;text-transform:uppercase;color:#e2857f;">14 — Live Demo</div>
+    <div>
+      <h2 style="font-family:var(--serif);font-weight:600;font-size:88px;line-height:1;margin:0;">Let’s look at<br>the real thing.</h2>
+      <p style="font-family:var(--mono);font-size:var(--type-body);color:#c9c6c0;margin:30px 0 0;">→ switch to <span style="color:#fff;">localhost:8000</span></p>
+    </div>
+    <div style="font-size:var(--type-small);color:#8f8d88;">Backup screenshots &amp; a recorded demo are ready in case the network drops.</div>
+  </div>
+  <div style="flex:1;background:#202225;border-left:1px solid #34363a;padding:var(--pad-y) var(--pad-x) var(--pad-y) 70px;display:flex;flex-direction:column;justify-content:center;gap:26px;">
+    <div style="font-family:var(--mono);font-size:var(--type-mono);text-transform:uppercase;letter-spacing:0.1em;color:#8f8d88;margin-bottom:6px;">Demo checklist</div>
+    <div style="display:flex;gap:22px;align-items:baseline;padding-bottom:22px;border-bottom:1px solid #34363a;"><span style="font-family:var(--mono);color:#e2857f;font-size:var(--type-small);">01</span><span style="font-size:26px;">Zoom the map: choropleth → hex bins → points</span></div>
+    <div style="display:flex;gap:22px;align-items:baseline;padding-bottom:22px;border-bottom:1px solid #34363a;"><span style="font-family:var(--mono);color:#e2857f;font-size:var(--type-small);">02</span><span style="font-size:26px;">Answer mandatory questions from the panel</span></div>
+    <div style="display:flex;gap:22px;align-items:baseline;padding-bottom:22px;border-bottom:1px solid #34363a;"><span style="font-family:var(--mono);color:#e2857f;font-size:var(--type-small);">03</span><span style="font-size:26px;">Trigger Nearby Hazards with geolocation</span></div>
+    <div style="display:flex;gap:22px;align-items:baseline;"><span style="font-family:var(--mono);color:#e2857f;font-size:var(--type-small);">04</span><span style="font-size:26px;">Finish in Swagger UI — the documented API</span></div>
+  </div>
+</section>
+
+</x-import>
+
+<template id="__bundler_thumbnail" data-bg-color="#fcfcfb">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#fcfcfb"></rect>
+    <circle cx="600" cy="360" r="150" fill="#ce3b33"></circle>
+    <circle cx="600" cy="360" r="210" fill="none" stroke="#ce3b33" stroke-opacity="0.18" stroke-width="44"></circle>
+    <text x="600" y="640" font-family="Georgia, serif" font-size="120" font-weight="600" fill="#1a1b1e" text-anchor="middle">GeoCrash <tspan fill="#ce3b33">DE</tspan></text>
+  </svg>
+</template>
+</x-dc>
+</body>
+</html>

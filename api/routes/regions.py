@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -58,7 +58,7 @@ def list_regions(
 
 
 @router.get("/{ags}/indicators")
-def get_region_indicators(ags: str, db: Session = Depends(get_db)):
+def get_region_indicators(ags: str = Path(..., examples=["11000"]), db: Session = Depends(get_db)):
     """Return all indicator time-series for a region."""
     region = db.execute(select(Region).where(Region.ags == ags)).scalar_one_or_none()
     if region is None:
@@ -91,7 +91,7 @@ def get_region_indicators(ags: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{ags}")
-def get_region(ags: str, db: Session = Depends(get_db)):
+def get_region(ags: str = Path(..., examples=["11000"]), db: Session = Depends(get_db)):
     region = db.execute(
         select(Region).where(Region.ags == ags)
     ).scalar_one_or_none()

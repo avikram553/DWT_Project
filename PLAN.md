@@ -27,7 +27,7 @@ Build a reproducible end-to-end data platform that:
 | Database | PostgreSQL 16 + PostGIS 3.4 (image: `postgis/postgis:16-3.4`) | Native KNN (`<->`), polygon storage, mature. **Do NOT use bare `postgres:16` — it does not include PostGIS.** |
 | Backend | Python 3.11 + FastAPI | Best ETL ergonomics, free OpenAPI docs |
 | DB layer | SQLAlchemy 2 + GeoAlchemy2 | Type hints + raw SQL escape hatch |
-| ETL | pandas + httpx + zipfile | Standard, fast for 3M rows |
+| ETL | pandas + httpx + zipfile | Standard, fast for 2.1M rows |
 | Frontend | Vanilla HTML + Leaflet.js + Chart.js | No build step, examiner-readable |
 | Container | Docker Compose | One-command setup → reproducibility (25%) |
 | Migrations | Plain SQL files in `db/init/` | Simpler than Alembic for this scope |
@@ -39,7 +39,7 @@ Build a reproducible end-to-end data platform that:
 
 | # | Source | Format | Purpose | License |
 |---|---|---|---|---|
-| 1 | **Unfallatlas** | CSV (latin-1, ;) | Accident events (~3M rows, 2016–2024) | dl-de/by-2-0 |
+| 1 | **Unfallatlas** | CSV (latin-1, ;) | Accident events (~2.1M rows, 2016–2024) | dl-de/by-2-0 |
 | 2 | **Regionalatlas** | GeoJSON | Region polygons (states + districts) | dl-de/by-2-0 |
 | 3 | **Regionalstatistik / GENESIS** | CSV / JSON API | Population + registered cars (~300k values) | dl-de/by-2-0 |
 | 4 | **GV-ISys / AGS** | CSV / XLSX | Region reference codes (8-digit AGS) | dl-de/by-2-0 |
@@ -69,7 +69,7 @@ Build a reproducible end-to-end data platform that:
 | # | Table | Rows | Purpose |
 |---|---|---|---|
 | 1 | `regions` | ~12,000 | Admin region catalog with polygons (canonical 2024 AGS) |
-| 2 | `accidents` | ~3,000,000 | Main fact table |
+| 2 | `accidents` | ~2,100,000 | Main fact table |
 | 3 | `indicators` | ~5–10 | Indicator catalog |
 | 4 | `indicator_values` | ~300,000 | Population & vehicles per region/year |
 | 5 | `accident_zones` | ~100,000 | Computed hotspot/safe classifications |
@@ -151,7 +151,7 @@ Every response carries `metadata.license`, `metadata.snapshot_date`, `metadata.s
 | **0. Skeleton** | Repo + Docker compose + stub API | `curl /healthz` returns ok | — |
 | **1. Schema** | All 9 tables + seeds | `docker compose up` produces schemed empty DB | 20% (schema) |
 | **2. Regions ETL** | ~12k regions loaded | `GET /regions?level=state` returns 16 | 25% (integration) |
-| **3. Accidents ETL** | ~3M rows loaded, idempotent | Mandatory Q1–Q5 answerable | 25% (integration) |
+| **3. Accidents ETL** | ~2.1M rows loaded, idempotent | Mandatory Q1–Q5 answerable | 25% (integration) |
 | **4. Indicators ETL** | ~300k values loaded | `GET /regions/{ags}/indicators` works | 25% (integration) |
 | **5. Aggregation API** | Filters, ranks, rates | All 7 mandatory Qs pass | 20% (API correctness) |
 | **6. Hotspots feature** | Zones precomputed + KNN | `/zones/around?lat=&lon=` <50ms | 20% + bonus |
@@ -346,7 +346,7 @@ Failures surface via `GET /healthz/data-quality` and block submission until reso
 | CSV encoding corrupts umlauts | Medium | High | Force `latin-1`; assert no replacement chars |
 | GENESIS API auth blocks ETL | Medium | Medium | Use Regionalstatistik CSV path |
 | Submission deadline slip | Medium | Critical | Phase 11 target = 23.06; 2-day buffer |
-| 3M-row import too slow | Low | Medium | Use psycopg `COPY`, not row-by-row |
+| 2.1M-row import too slow | Low | Medium | Use psycopg `COPY`, not row-by-row |
 | Live demo network failure | Medium | High | All data local; pre-recorded backup video |
 | 2018 size dip hides bugs | Medium | Medium | Per-state-per-year row count assertions |
 | Frontend bugs eat time | High | Medium | Vanilla JS only, no build step |
@@ -418,7 +418,7 @@ Drafts of each section are written *during* the corresponding phase, not all at 
 All design decisions are closed:
 
 - [x] Tech stack confirmed: Python + FastAPI + Postgres+PostGIS + Vanilla JS
-- [x] Year scope confirmed: **2016–2024 full** (~3M rows, maximalist)
+- [x] Year scope confirmed: **2016–2024 full** (~2.1M rows, maximalist)
 - [x] Indicator path confirmed: **Regionalstatistik CSV** (no auth, demo-reliable)
 - [x] Solo submission confirmed
 
@@ -442,19 +442,21 @@ Update this table as phases complete:
 |---|---|---|---|---|
 | 0. Skeleton | ✅ Complete | 2026-06-22 | 2026-06-22 | Docker compose + stub API |
 | 1. Schema | ✅ Complete | 2026-06-22 | 2026-06-22 | 9 tables + seeds + indexes |
-| 2. Regions ETL | ✅ Complete | 2026-06-22 | 2026-06-22 | VG250 shapefile, /regions endpoints |
+| 2. Regions ETL | ✅ Complete | 2026-06-22 | 2026-06-23 | VG250 shapefile, /regions endpoints |
 | 3. Accidents ETL | ✅ Complete | 2026-06-23 | 2026-06-23 | 2016-2024, SHA-1 surrogate for 2016/2018/2019, per-year column mapper |
-| 4. Indicators ETL | ✅ Complete | 2026-06-23 | 2026-06-23 | Regionalstatistik pop+PKW, /regions/{ags}/indicators |
+| 4. Indicators ETL | ✅ Complete | 2026-06-23 | 2026-06-25 | Regionalstatistik pop+PKW; extended 06-25 to multi-year population (2016-2024) for Q7 |
 | 5. Aggregation API | ✅ Complete | 2026-06-23 | 2026-06-23 | All 7 mandatory Qs wired |
-| 6. Hotspots feature | ⬜ Not started | — | — | |
-| 7. Frontend | ⬜ Not started | — | — | |
-| 8. Update script | ⬜ Not started | — | — | |
-| 9. API docs | ⬜ Not started | — | — | |
-| 10. Quality checks | ⬜ Not started | — | — | |
-| 11. Term paper | ⬜ Not started | — | — | |
-| 12. Submission | ⬜ Not started | — | — | |
+| 6. Hotspots feature | ✅ Complete | 2026-06-24 | 2026-06-25 | Hotspot/safe-zone KNN endpoints 06-24; `accident_zones` extended to full 2016-2024 coverage + `/zones/nearby-hazards` (500m KNN) 06-25 |
+| 7. Frontend | ✅ Complete | 2026-06-24 | 2026-06-26 | Choropleth + deck.gl hex + point layers, geolocation "Nearby Hazards" flow, 10-query examiner panel, dark glass theme — most-iterated phase (40+ commits) |
+| 8. Update script | ✅ Complete | 2026-06-22 | 2026-06-22 | `etl/update.py` orchestrator shipped with initial skeleton, extended per-source as ETLs landed |
+| 9. API docs | ✅ Complete | 2026-07-06 | 2026-07-06 | `api-docs/openapi.json` exported from live app (`app.openapi()`), 15 paths, title "GeoCrash DE" — not yet committed to git |
+| 10. Quality checks | 🟡 In progress | 2026-06-23 | — | `/healthz/data-quality` endpoint implemented; `LIMITATIONS.md`/`USAGE.md`/`SCHEMA.md` deliverables from §8 folder layout not yet written (partially covered ad hoc by `Challenges.md`) |
+| 11. Term paper | 🟡 In progress | — | — | `paper/term_paper.md` + `.tex` drafted (~293 lines, includes examiner-question cookbook + Swagger figure) but **not yet committed to git**; needs final pass against the ~5-page A4 rubric limit |
+| 12. Submission | ⬜ Not started | — | — | No pre-zip cleanup run yet; working tree currently has uncommitted changes (see note below) |
 
 Status legend: ⬜ Not started · 🟡 In progress · ✅ Complete · ⚠️ Blocked
+
+**Uncommitted as of 2026-07-06:** `README.md`, `api/main.py`, `api/routes/aggregates.py`, `api/routes/metadata.py`, `frontend/{app.js,index.html,style.css}`, `.gitignore` are modified but not committed; `CLAUDE.md`, `Challenges.md`, `brainstorms/`, `docs/`, `frontendPlan.md`, `paper/`, and 3 test files (`tests/conftest.py`, `tests/test_database_integrity.py`, `tests/test_spatial_polygons.py`) are untracked. None of this is lost — it just hasn't been committed. Commit before relying on `git log`/`git diff` to describe current state.
 
 ---
 

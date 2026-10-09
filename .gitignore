@@ -1,15 +1,43 @@
+# Environment & secrets
 .env
+.env.*
 .mcp.json
 .claude/settings.local.json
+
+# Data
 rawData/
+
+# Python
 __pycache__/
-.venv/
-venv/
 *.pyc
 *.pyo
-.DS_Store
+*.pyd
 *.egg-info/
 dist/
 build/
+.venv/
+venv/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Zip / archives
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Local agent tool config (contains secrets)
+.codex/

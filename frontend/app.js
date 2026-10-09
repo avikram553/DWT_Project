@@ -4,14 +4,15 @@
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
   year: 2024,
-  participant: '',      // '' | 'car' | 'bike' | 'pedestrian' | 'truck'
+  participant: '',      // '' | 'car' | 'bike' | 'pedestrian' | 'truck' | 'moped'
   category: '',         // '' | '2' | '1'
   mode: 'auto',         // 'auto' | 'district' | 'hex' | 'point'
   activeLayer: 'choropleth',
-  lastSwitchZoom: 6,
   playInterval: null,
   yearData: {},         // year → {total, fatal, serious, minor}
   cityBounds: null,     // {south, north, west, east} when city jump active
+  cityJumpInProgress: false,
+  nearbyLocation: null, // {lat, lon, radiusM} when nearby hazards is active
 };
 
 // ── Years ──────────────────────────────────────────────────────────────────
@@ -58,6 +59,8 @@ L.control.zoom({ position: 'bottomright' }).addTo(map);
 const deckCanvas = document.createElement('canvas');
 deckCanvas.id = 'deck-canvas';
 document.getElementById('map').appendChild(deckCanvas);
+let deckInstance = null;
+let deckLoadPromise = null;
 
 function getDeckViewState() {
   const c = map.getCenter();
@@ -65,26 +68,62 @@ function getDeckViewState() {
   return { longitude: c.lng, latitude: c.lat, zoom: map.getZoom() - 1, pitch: 30, bearing: 0 };
 }
 
-const deckInstance = new deck.Deck({
-  canvas: deckCanvas,
-  width: '100%',
-  height: '100%',
-  initialViewState: getDeckViewState(),
-  controller: false,
-  layers: [],
-  getTooltip: ({ object }) => {
-    if (!object) return null;
-    const points = object.points || [];
-    const count  = points.length;
-    const fatal  = points.filter(p => p.source && p.source.category === 1).length;
-    return {
-      html: `<div style="background:#1A2332;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;font-size:12px;color:#F9FAFB">${count.toLocaleString('en-US')} accidents · ${fatal} fatal</div>`,
-      style: { padding: '0', background: 'none', border: 'none' },
-    };
-  },
-});
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', reject, { once: true });
+      if (window.deck) resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
 
-map.on('move', () => deckInstance.setProps({ viewState: getDeckViewState() }));
+async function ensureDeckInstance() {
+  if (deckInstance) return deckInstance;
+  if (!deckLoadPromise) {
+    deckLoadPromise = loadScriptOnce('vendor/deck.gl/deck.gl.min.js').then(() => {
+      deckInstance = new deck.Deck({
+        canvas: deckCanvas,
+        width: '100%',
+        height: '100%',
+        initialViewState: getDeckViewState(),
+        controller: false,
+        layers: [],
+        onError: (error) => {
+          console.warn('deck.gl disabled:', error?.message || error);
+          deckCanvas.style.opacity = '0';
+          deckCanvas.classList.remove('hex-active');
+          showToast('3D hex rendering is unavailable in this browser.');
+          return true;
+        },
+        getTooltip: ({ object }) => {
+          if (!object) return null;
+          const points = object.points || [];
+          const count  = points.length;
+          const fatal  = points.filter(p => p.source && p.source.category === 1).length;
+          return {
+            html: `<div style="background:#1A2332;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;font-size:12px;color:#F9FAFB">${count.toLocaleString('en-US')} accidents · ${fatal} fatal</div>`,
+            style: { padding: '0', background: 'none', border: 'none' },
+          };
+        },
+      });
+      return deckInstance;
+    });
+  }
+  return deckLoadPromise;
+}
+
+map.on('move', () => {
+  if (deckInstance) deckInstance.setProps({ viewState: getDeckViewState() });
+});
 
 // ── Leaflet layer groups ───────────────────────────────────────────────────
 const layers = {
@@ -93,25 +132,119 @@ const layers = {
   stateBoundary:  L.layerGroup().addTo(map),
   accidents:      L.layerGroup().addTo(map),
   hazards:        L.layerGroup().addTo(map),
+  hotspots:       L.layerGroup().addTo(map),
 };
+const pointRenderer = L.canvas({ padding: 0.35 });
+const POINT_EMOJI_MIN_ZOOM = 13;
+const POINT_EMOJI_MARKER_LIMITS = [
+  { zoom: 16, limit: 2000 },
+  { zoom: 15, limit: 1400 },
+  { zoom: 14, limit: 900 },
+  { zoom: 13, limit: 500 },
+];
 
 let districtGeoCache = null;
+let choroplethSeq = 0;
+let districtTrendCache = null;
+let municipalityBoundsKey = null;
+let activeViewportController = null;
+const apiCache = new Map();
+const PERSISTENT_CACHE_PREFIX = 'geocrash:v4:';
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 // ── API helper ─────────────────────────────────────────────────────────────
-async function apiFetch(path) {
-  const res = await fetch(`http://localhost:8000${path}`);
+async function apiFetch(path, options = {}) {
+  const { cache = true, persist = false, maxAgeMs = ONE_DAY_MS, signal } = options;
+  if (cache && apiCache.has(path)) return apiCache.get(path);
+  const persistentKey = `${PERSISTENT_CACHE_PREFIX}${path}`;
+  if (cache && persist) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(persistentKey) || 'null');
+      if (cached && Date.now() - cached.savedAt < maxAgeMs) {
+        apiCache.set(path, cached.data);
+        return cached.data;
+      }
+    } catch {
+      localStorage.removeItem(persistentKey);
+    }
+  }
+  const res = await fetch(path, { signal });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
-  return res.json();
+  const data = await res.json();
+  if (cache) apiCache.set(path, data);
+  if (cache && persist) {
+    try {
+      localStorage.setItem(persistentKey, JSON.stringify({ savedAt: Date.now(), data }));
+    } catch {
+      // Storage can be full or unavailable; in-memory caching is still useful.
+    }
+  }
+  return data;
+}
+
+function activeViewportSignal() {
+  if (activeViewportController) activeViewportController.abort();
+  activeViewportController = new AbortController();
+  return activeViewportController.signal;
+}
+
+function roundedBoundsKey(b, precision = 2) {
+  return [
+    b.getSouth().toFixed(precision),
+    b.getNorth().toFixed(precision),
+    b.getWest().toFixed(precision),
+    b.getEast().toFixed(precision),
+  ].join(',');
+}
+
+function distanceMeters(aLat, aLon, bLat, bLon) {
+  const toRad = deg => deg * Math.PI / 180;
+  const earthRadiusM = 6371000;
+  const dLat = toRad(bLat - aLat);
+  const dLon = toRad(bLon - aLon);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * earthRadiusM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function boundsAround(lat, lon, radiusM) {
+  const latDelta = radiusM / 111320;
+  const lonDelta = radiusM / (111320 * Math.max(0.2, Math.cos(lat * Math.PI / 180)));
+  return {
+    south: lat - latDelta,
+    north: lat + latDelta,
+    west: lon - lonDelta,
+    east: lon + lonDelta,
+  };
 }
 
 // ── Zoom state machine ─────────────────────────────────────────────────────
-const ZOOM_HEX   = 8;
+const ZOOM_HEX   = 9;
 const ZOOM_POINT = 12;
 const HYSTERESIS = 0.5;
+const HEX_POINT_LIMIT = 50000;
+const POINT_RENDER_LIMIT = 2000;
 
-function targetLayerForZoom(z) {
+function targetLayerForZoom(z, currentLayer = state.activeLayer) {
+  const hexExit = ZOOM_HEX - HYSTERESIS;
+  const pointExit = ZOOM_POINT - HYSTERESIS;
+
+  if (currentLayer === 'point') {
+    if (z >= pointExit) return 'point';
+    if (z >= hexExit) return 'hex';
+    return 'choropleth';
+  }
+
+  if (currentLayer === 'hex') {
+    if (z >= ZOOM_POINT) return 'point';
+    if (z >= hexExit) return 'hex';
+    return 'choropleth';
+  }
+
   if (z >= ZOOM_POINT) return 'point';
-  if (z >= ZOOM_HEX)   return 'hex';
+  if (z >= ZOOM_HEX) return 'hex';
   return 'choropleth';
 }
 
@@ -120,27 +253,57 @@ function syncLegendVisibility() {
   if (el) el.classList.toggle('legend-hidden', state.activeLayer !== 'choropleth');
 }
 
-function restoreDefaultLayers() {
-  if (!map.hasLayer(layers.choropleth))    map.addLayer(layers.choropleth);
-  if (!map.hasLayer(layers.stateBoundary)) map.addLayer(layers.stateBoundary);
-  if (!map.hasLayer(layers.accidents))     map.addLayer(layers.accidents);
+function syncModeControl(mode) {
+  state.mode = mode;
+  document.querySelectorAll('#panel-a-dropdown .mode-option').forEach(o => {
+    o.classList.toggle('mode-option--active', o.dataset.mode === mode);
+  });
+}
+
+function applyLayerVisibility(name) {
+  const showChoropleth = name === 'choropleth';
+  const showBoundary = name !== 'point';
+
+  if (showChoropleth) {
+    if (!map.hasLayer(layers.choropleth)) map.addLayer(layers.choropleth);
+  } else if (map.hasLayer(layers.choropleth)) {
+    map.removeLayer(layers.choropleth);
+  }
+
+  if (showBoundary) {
+    if (!map.hasLayer(layers.stateBoundary)) map.addLayer(layers.stateBoundary);
+  } else if (map.hasLayer(layers.stateBoundary)) {
+    map.removeLayer(layers.stateBoundary);
+  }
+
+  if (name === 'point') {
+    if (!map.hasLayer(layers.accidents)) map.addLayer(layers.accidents);
+  } else {
+    layers.accidents.clearLayers();
+    if (map.hasLayer(layers.accidents)) map.removeLayer(layers.accidents);
+  }
+
+  if (!showChoropleth && map.hasLayer(layers.municipalities)) {
+    map.removeLayer(layers.municipalities);
+  }
+
   layers.hazards.clearLayers();
 }
 
 function switchLayer(name) {
-  restoreDefaultLayers();
-  if (state.activeLayer === name) return;
+  state.nearbyLocation = null;
+  applyLayerVisibility(name);
+  if (state.activeLayer === name) {
+    syncLegendVisibility();
+    return;
+  }
+  // Stop a request from the previous view (e.g. a slow 500 m fetch) from drawing over this one.
+  if (activeViewportController) activeViewportController.abort();
 
   if (state.activeLayer === 'hex') {
     deckCanvas.style.opacity = '0';
     deckCanvas.classList.remove('hex-active');
-    deckInstance.setProps({ layers: [] });
-  }
-  if (state.activeLayer === 'point') {
-    layers.accidents.clearLayers();
-  }
-  if (state.activeLayer === 'choropleth' && name !== 'choropleth') {
-    map.removeLayer(layers.choropleth);
+    if (deckInstance) deckInstance.setProps({ layers: [] });
   }
 
   state.activeLayer = name;
@@ -167,17 +330,12 @@ function onZoomEnd() {
   const target = targetLayerForZoom(z);
 
   if (target === state.activeLayer) {
-    // Same layer — reload choropleth so district labels appear/disappear at zoom 7
+    // Same layer — reload choropleth so district labels appear/disappear at zoom 7.
+    // Hex/point reloads are handled by moveend after the viewport settles.
     if (state.activeLayer === 'choropleth') loadChoropleth();
     return;
   }
 
-  // Hysteresis: switching to a lower-density layer requires 0.5 zoom drop
-  const movingToLower = (state.activeLayer === 'point' && target !== 'point') ||
-                        (state.activeLayer === 'hex'   && target === 'choropleth');
-  if (movingToLower && Math.abs(z - state.lastSwitchZoom) < HYSTERESIS) return;
-
-  state.lastSwitchZoom = z;
   switchLayer(target);
 }
 
@@ -188,6 +346,7 @@ function updateZoomBadge(layer) {
   if (!el) return;
   el.textContent = layer === 'hex' ? '⬡ Hex View'
                  : layer === 'point' ? '📍 Point View'
+                 : layer === 'nearby' ? '📍 500 m View'
                  : '🗺️ District View';
 }
 
@@ -197,19 +356,46 @@ function updateDynamicStat(val, lbl) {
   document.getElementById('stat-dynamic-lbl').textContent = lbl;
 }
 
+function setMapLoading(visible, label = 'Loading') {
+  const el = document.getElementById('map-loading');
+  if (!el) return;
+  el.textContent = label;
+  el.classList.toggle('visible', visible);
+}
+
+function runWhenIdle(fn) {
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(fn, { timeout: 2500 });
+  } else {
+    setTimeout(fn, 250);
+  }
+}
+
 // ── Reload active layer on filter / year change ───────────────────────────
 function reloadActiveLayer() {
   if (state.activeLayer === 'choropleth') loadChoropleth();
   else if (state.activeLayer === 'hex')   loadHex();
-  else                                     loadPoints();
+  else if (state.activeLayer === 'point') loadPoints();
+  else if (state.activeLayer === 'nearby' && state.nearbyLocation) {
+    const { lat, lon, radiusM } = state.nearbyLocation;
+    renderNearbyAccidents(lat, lon, radiusM, false)
+      .catch(() => showToast('Could not load accidents within 500 m.'));
+  }
   updateKPIs();
+}
+
+function clearCityBoundsForManualViewportChange() {
+  if (!state.cityJumpInProgress) state.cityBounds = null;
 }
 
 // ── moveend: reload hex/point for new viewport ─────────────────────────────
 let moveendTimer = null;
+map.on('zoomstart', clearCityBoundsForManualViewportChange);
+map.on('dragstart', clearCityBoundsForManualViewportChange);
 map.on('moveend', () => {
   clearTimeout(moveendTimer);
   moveendTimer = setTimeout(() => {
+    maybeLoadMunicipalities();
     if (state.activeLayer === 'hex')   loadHex();
     if (state.activeLayer === 'point') loadPoints();
   }, 500);
@@ -219,7 +405,7 @@ map.on('moveend', () => {
 async function checkApiStatus() {
   const el = document.getElementById('api-status');
   try {
-    await apiFetch('/metadata/sources');
+    await apiFetch('/metadata/sources', { persist: true, maxAgeMs: ONE_DAY_MS });
     el.textContent = '● Live'; el.className = 'api-status live';
   } catch {
     el.textContent = '● Offline'; el.className = 'api-status error';
@@ -228,15 +414,25 @@ async function checkApiStatus() {
 
 // ── Stubs filled by Tasks 5–11 ─────────────────────────────────────────────
 async function loadChoropleth() {
-  layers.choropleth.clearLayers();
+  setMapLoading(true, 'Loading districts');
+  const seq = ++choroplethSeq;
 
   let countUrl = `/aggregates/accidents?level=district&year=${state.year}`;
   if (state.category)    countUrl += `&category=${state.category}`;
 
-  const [countRes, geoRes] = await Promise.all([
-    apiFetch(countUrl),
-    districtGeoCache ?? apiFetch('/regions?level=district').then(r => { districtGeoCache = r; return r; }),
-  ]);
+  let countRes;
+  let geoRes;
+  try {
+    [countRes, geoRes] = await Promise.all([
+      apiFetch(countUrl, { persist: true, maxAgeMs: ONE_DAY_MS }),
+      districtGeoCache ?? apiFetch('/data/districts_simplified.json', { persist: true, maxAgeMs: ONE_DAY_MS }).then(r => { districtGeoCache = r; return r; }),
+    ]);
+  } catch {
+    if (seq === choroplethSeq) setMapLoading(false);
+    return;
+  }
+  if (seq !== choroplethSeq) return;
+  layers.choropleth.clearLayers();
 
   const lookup = {};
   for (const r of countRes.results) {
@@ -251,7 +447,7 @@ async function loadChoropleth() {
 
   const showLabels = map.getZoom() >= 7;
 
-  L.geoJSON(features, {
+  const districtLayer = L.geoJSON(features, {
     style: feature => ({
       fillColor: scaleColor(lookup[feature.properties.ags] || 0),
       fillOpacity: 0.82,
@@ -264,18 +460,24 @@ async function loadChoropleth() {
         `<strong>${feature.properties.name}</strong><br>${count.toLocaleString('en-US')} accidents`,
         { sticky: true }
       );
-      if (showLabels) {
-        lyr.bindTooltip(feature.properties.name, {
-          permanent: true, className: 'district-label', direction: 'center',
-        });
-      }
       lyr.on('mouseover', () => lyr.setStyle({ color: 'rgba(0,0,0,0.5)', weight: 1.5 }));
       lyr.on('mouseout',  () => lyr.setStyle({ color: 'rgba(0,0,0,0.15)', weight: 0.7 }));
       lyr.on('click', () => showInsightDistrict(feature.properties.ags, feature.properties.name, count));
     },
   }).addTo(layers.choropleth);
 
+  // Separate tooltips: a layer can hold only one, and the count tooltip must stay.
+  if (showLabels && map.hasLayer(layers.choropleth)) {
+    districtLayer.eachLayer(lyr => {
+      L.tooltip({ permanent: true, className: 'district-label', direction: 'center' })
+        .setLatLng(lyr.getCenter())
+        .setContent(lyr.feature.properties.name)
+        .addTo(layers.choropleth);
+    });
+  }
+
   renderLegend();
+  setMapLoading(false);
 }
 
 function renderLegend() {
@@ -294,34 +496,30 @@ function renderLegend() {
   ).join('');
   syncLegendVisibility();
 }
-let municipalitiesLoaded = false;
-
 async function loadMunicipalities() {
-  if (municipalitiesLoaded) return;
-  municipalitiesLoaded = true;
-  try {
-    const res = await apiFetch('/regions?level=municipality');
-    L.geoJSON(
-      res.results.map(r => ({ type: 'Feature', properties: {}, geometry: r.geom })),
-      { style: { fillOpacity: 0, color: 'rgba(0,0,0,0.1)', weight: 0.4 }, interactive: false }
-    ).addTo(layers.municipalities);
-  } catch {
-    municipalitiesLoaded = false; // allow retry
-  }
+  // Full municipality GeoJSON is too large for interactive rendering.
+  // Keep district/state outlines as the fast boundary layer.
+  municipalityBoundsKey = `${map.getZoom().toFixed(1)}:${roundedBoundsKey(map.getBounds(), 1)}`;
 }
 
 function maybeLoadMunicipalities() {
+  if (state.activeLayer !== 'choropleth') {
+    if (map.hasLayer(layers.municipalities)) map.removeLayer(layers.municipalities);
+    return;
+  }
+
   if (map.getZoom() >= 9) {
     if (!map.hasLayer(layers.municipalities)) map.addLayer(layers.municipalities);
     loadMunicipalities();
   } else {
     if (map.hasLayer(layers.municipalities)) map.removeLayer(layers.municipalities);
+    municipalityBoundsKey = null;
   }
 }
 
 async function loadStateBoundaries() {
   try {
-    const res = await apiFetch('/regions?level=state');
+    const res = await apiFetch('/data/states_simplified.json', { persist: true, maxAgeMs: ONE_DAY_MS });
     const features = res.results.map(r => ({
       type: 'Feature',
       properties: {},
@@ -355,67 +553,174 @@ function buildHexLayer(data) {
 }
 
 async function loadHex() {
+  if (state.mode === 'auto' && map.getZoom() < ZOOM_HEX - HYSTERESIS) {
+    switchLayer('choropleth');
+    return;
+  }
+
+  setMapLoading(true, 'Loading hexes');
+  let deckApi;
+  try {
+    deckApi = await ensureDeckInstance();
+  } catch {
+    setMapLoading(false);
+    showToast('3D hex rendering is unavailable in this browser.');
+    return;
+  }
+  // The view may have changed while deck.gl was loading.
+  if (state.activeLayer !== 'hex') return;
+  const signal = activeViewportSignal();
   const b = map.getBounds();
-  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}&limit=5000`;
+  let url = `/accidents?year=${state.year}&lat_min=${b.getSouth()}&lat_max=${b.getNorth()}&lon_min=${b.getWest()}&lon_max=${b.getEast()}&limit=${HEX_POINT_LIMIT}`;
   if (state.category)    url += `&category=${state.category}`;
   if (state.participant) url += `&participant=${state.participant}`;
 
   let res;
-  try { res = await apiFetch(url); } catch { return; }
+  try { res = await apiFetch(url, { cache: false, signal }); } catch { if (!signal.aborted) setMapLoading(false); return; }
+  // Rows are ordered by insertion, so a capped result is not a fair viewport sample.
+  if (res.metadata.total_count > HEX_POINT_LIMIT) {
+    deckApi.setProps({ layers: [] });
+    setMapLoading(false);
+    updateDynamicStat('Zoom in', 'for hex detail');
+    return;
+  }
 
   const data = res.results.map(a => ({ position: [a.lon, a.lat], category: a.category }));
-  deckInstance.setProps({ layers: [buildHexLayer(data)] });
+  deckApi.setProps({ layers: [buildHexLayer(data)] });
   updateDynamicStat(`⬡ ${data.length.toLocaleString('en-US')}`, 'in viewport');
+  setMapLoading(false);
 }
 
-const PARTICIPANT_ICON = { car: '🚗', bike: '🚲', pedestrian: '🚶', truck: '🚛' };
+function getSeverityPointStyle(acc) {
+  if (acc.category === 1) {
+    return {
+      radius: map.getZoom() >= 15 ? 5 : 4,
+      color: '#7F1D1D',
+      fillColor: '#DC2626',
+      fillOpacity: 0.78,
+      weight: 1,
+    };
+  }
+  if (acc.category === 2) {
+    return {
+      radius: map.getZoom() >= 15 ? 4.5 : 3.5,
+      color: '#9A3412',
+      fillColor: '#F97316',
+      fillOpacity: 0.68,
+      weight: 1,
+    };
+  }
+  return {
+    radius: map.getZoom() >= 15 ? 4 : 3,
+    color: '#1E3A8A',
+    fillColor: '#3B82F6',
+    fillOpacity: 0.55,
+    weight: 1,
+  };
+}
+
+const PARTICIPANT_ICON = {
+  car: '🚗',
+  bike: '🚲',
+  pedestrian: '🚶',
+  truck: '🚛',
+  moped: '🏍️',
+  other: '⚠️',
+};
 
 function getParticipantIcon(acc) {
-  // If a filter is active, always show that filter's icon
   if (state.participant && PARTICIPANT_ICON[state.participant]) {
     return PARTICIPANT_ICON[state.participant];
   }
-  // No filter — pick the primary participant from the accident data
   if (acc.participant_bike)       return '🚲';
   if (acc.participant_pedestrian) return '🚶';
   if (acc.participant_truck)      return '🚛';
+  if (acc.participant_moped)      return '🏍️';
   if (acc.participant_car)        return '🚗';
-  return '💥';
+  return '⚠️';
 }
 
-function renderSinglePoint(acc) {
-  const icon = getParticipantIcon(acc);
-  const marker = L.marker([acc.lat, acc.lon], {
-    icon: L.divIcon({
-      className: '',
-      html: `<div class="acc-icon">${icon}</div>`,
-      iconSize: [20, 20], iconAnchor: [10, 10],
-    }),
+function shouldUseEmojiMarkers(accidentCount, zoom = map.getZoom()) {
+  if (zoom < POINT_EMOJI_MIN_ZOOM) return false;
+  const rule = POINT_EMOJI_MARKER_LIMITS.find(({ zoom: threshold }) => zoom >= threshold);
+  return accidentCount <= (rule?.limit ?? 0);
+}
+
+function renderSinglePoint(acc, useEmojiMarker = false) {
+  if (useEmojiMarker) {
+    const icon = getParticipantIcon(acc);
+    const marker = L.marker([acc.lat, acc.lon], {
+      icon: L.divIcon({
+        className: '',
+        html: `<div class="acc-icon">${icon}</div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      }),
+    });
+    marker.on('click', () => showDetailCard(acc, [acc.lat, acc.lon]));
+    return marker;
+  }
+
+  const marker = L.circleMarker([acc.lat, acc.lon], {
+    ...getSeverityPointStyle(acc),
+    renderer: pointRenderer,
   });
   marker.on('click', () => showDetailCard(acc, [acc.lat, acc.lon]));
   return marker;
 }
 
 async function loadPoints() {
+  if (state.mode === 'auto' && map.getZoom() < ZOOM_POINT - HYSTERESIS && !state.cityBounds) {
+    switchLayer(targetLayerForZoom(map.getZoom()));
+    return;
+  }
+
   layers.accidents.clearLayers();
+  setMapLoading(true, 'Loading points');
+  const signal = activeViewportSignal();
   const cb = state.cityBounds;
   const south = cb ? cb.south : map.getBounds().getSouth();
   const north = cb ? cb.north : map.getBounds().getNorth();
   const west  = cb ? cb.west  : map.getBounds().getWest();
   const east  = cb ? cb.east  : map.getBounds().getEast();
-  let url = `/accidents?year=${state.year}&lat_min=${south}&lat_max=${north}&lon_min=${west}&lon_max=${east}&limit=5000`;
+  let url = `/accidents?year=${state.year}&lat_min=${south}&lat_max=${north}&lon_min=${west}&lon_max=${east}&limit=${HEX_POINT_LIMIT}`;
   if (state.category)    url += `&category=${state.category}`;
   if (state.participant) url += `&participant=${state.participant}`;
 
   let res;
-  try { res = await apiFetch(url); } catch { return; }
-  const accidents = res.results;
+  try { res = await apiFetch(url, { cache: false, signal }); } catch { if (!signal.aborted) setMapLoading(false); return; }
+  const total = res.metadata.total_count;
+  if (total > HEX_POINT_LIMIT) {
+    setMapLoading(false);
+    updateDynamicStat('Zoom in', `${total.toLocaleString('en-US')} in viewport`);
+    return;
+  }
+  // API rows are in insertion order, so draw a uniform random sample rather than the first rows.
+  const accidents = sampleRows(res.results, POINT_RENDER_LIMIT);
+  const markers = [];
+  const useEmojiMarkers = shouldUseEmojiMarkers(accidents.length);
 
   for (const acc of accidents) {
-    renderSinglePoint(acc).addTo(layers.accidents);
+    markers.push(renderSinglePoint(acc, useEmojiMarkers));
   }
+  L.layerGroup(markers).addTo(layers.accidents);
 
-  updateDynamicStat(accidents.length.toLocaleString('en-US'), 'in viewport');
+  if (accidents.length < total) {
+    updateDynamicStat(accidents.length.toLocaleString('en-US'), `sampled of ${total.toLocaleString('en-US')}`);
+  } else {
+    updateDynamicStat(total.toLocaleString('en-US'), 'in viewport');
+  }
+  setMapLoading(false);
+}
+
+function sampleRows(rows, n) {
+  if (rows.length <= n) return rows;
+  const copy = rows.slice();
+  for (let i = 0; i < n; i++) {
+    const j = i + Math.floor(Math.random() * (copy.length - i));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
 }
 
 function showDetailCard(acc, latlng) {
@@ -458,9 +763,7 @@ function wirePanelA() {
 
   dropdown.querySelectorAll('.mode-option').forEach(opt => {
     opt.addEventListener('click', () => {
-      state.mode = opt.dataset.mode;
-      dropdown.querySelectorAll('.mode-option').forEach(o => o.classList.remove('mode-option--active'));
-      opt.classList.add('mode-option--active');
+      syncModeControl(opt.dataset.mode);
       dropdown.classList.add('hidden');
 
       if (state.mode === 'auto') {
@@ -494,20 +797,24 @@ function wireLeftPanel() {
     reloadActiveLayer();
   });
 
-  // City jump → flyTo + force point mode so emoji markers appear
+  // City jump → enter point view for inspection, then let auto mode handle zoom-out.
   document.getElementById('lp-city').addEventListener('change', e => {
-    restoreDefaultLayers();
     const val = e.target.value;
     if (!val) return;
-    const [lat, lon, z] = val.split(',').map(Number);
+    const [lat, lon, rawZoom] = val.split(',').map(Number);
+    const z = Math.max(rawZoom, ZOOM_POINT);
     const r = z >= 13 ? 0.07 : z >= 12 ? 0.14 : 0.28;
     state.cityBounds = { south: lat - r, north: lat + r, west: lon - r * 1.6, east: lon + r * 1.6 };
-    state.mode = 'point';
-    document.querySelectorAll('#panel-a-dropdown .mode-option').forEach(o => o.classList.remove('mode-option--active'));
-    document.querySelector('#panel-a-dropdown [data-mode="point"]').classList.add('mode-option--active');
+    state.cityJumpInProgress = true;
+    syncModeControl('auto');
     switchLayer('point');
     map.flyTo([lat, lon], z, { duration: 1.2 });
-    setTimeout(() => { e.target.value = ''; }, 1200);
+    setTimeout(() => {
+      state.cityJumpInProgress = false;
+      state.cityBounds = null;
+      if (state.activeLayer === 'point') loadPoints();
+      e.target.value = '';
+    }, 1500);
   });
 
   map.on('dragend', () => { state.cityBounds = null; });
@@ -543,41 +850,30 @@ function wireLeftPanel() {
 }
 
 async function updateKPIs() {
-  let url = `/aggregates/accidents?year=${state.year}`;
-  if (state.category)    url += `&category=${state.category}`;
-
   try {
-    const [res, fatalRes] = await Promise.all([
-      apiFetch(url),
-      apiFetch(`/aggregates/accidents?year=${state.year}&category=1`),
-    ]);
-    const total = res.metadata?.total_count
-      ?? res.results.reduce((s, r) => s + r.accident_count, 0);
-    const fatal = fatalRes.metadata?.total_count
-      ?? fatalRes.results.reduce((s, r) => s + r.accident_count, 0);
+    if (!state.yearData[state.year]) await loadAllYearData();
+    const yearly = state.yearData[state.year] || {};
+    const total = state.category === '1' ? (yearly.fatal || 0)
+      : state.category === '2' ? (yearly.serious || 0)
+      : (yearly.total || 0);
+    const fatal = yearly.fatal || 0;
     document.querySelector('#stat-total .stat-num').textContent = total.toLocaleString('en-US');
     document.querySelector('#stat-fatal .stat-num').textContent = fatal.toLocaleString('en-US');
   } catch { /* keep dashes */ }
 }
 async function loadAllYearData() {
   try {
-    const [allRes, fatalRes, seriousRes] = await Promise.all([
-      apiFetch('/aggregates/accidents'),
-      apiFetch('/aggregates/accidents?category=1'),
-      apiFetch('/aggregates/accidents?category=2'),
-    ]);
-
-    const total = {}, fatal = {}, serious = {};
-    for (const r of allRes.results)     total[r.year]   = (total[r.year]   || 0) + r.accident_count;
-    for (const r of fatalRes.results)   fatal[r.year]   = (fatal[r.year]   || 0) + r.accident_count;
-    for (const r of seriousRes.results) serious[r.year] = (serious[r.year] || 0) + r.accident_count;
+    const res = await apiFetch('/data/year_summary.json', { persist: true, maxAgeMs: ONE_DAY_MS });
+    const byYear = {};
+    for (const r of res.results) byYear[r.year] = r;
 
     for (const y of YEARS) {
+      const d = byYear[y] || {};
       state.yearData[y] = {
-        total:   total[y]   || 0,
-        fatal:   fatal[y]   || 0,
-        serious: serious[y] || 0,
-        minor:   (total[y] || 0) - (fatal[y] || 0) - (serious[y] || 0),
+        total:   d.total   || 0,
+        fatal:   d.fatal   || 0,
+        serious: d.serious || 0,
+        minor:   d.minor   || 0,
       };
     }
     renderScrubberSparkline();
@@ -634,7 +930,6 @@ function wireScrubber() {
     state.year = y;
     updateScrubberPlayhead();
     reloadActiveLayer();
-    updateKPIs();
   }
 
   let dragging = false;
@@ -669,7 +964,8 @@ function closeInsightPanel() {
 async function showInsightDistrict(ags, name, count) {
   let trend = YEARS.map(() => 0);
   try {
-    const res = await apiFetch(`/aggregates/accidents?level=district&ags=${ags}`);
+    const res = districtTrendCache ?? await apiFetch('/aggregates/accidents?level=district', { persist: true, maxAgeMs: ONE_DAY_MS });
+    districtTrendCache = res;
     const byYear = {};
     for (const r of res.results) {
       if (String(r.region_id) === ags) byYear[r.year] = (byYear[r.year] || 0) + r.accident_count;
@@ -753,7 +1049,7 @@ async function showInsightHex(object) {
 
 // ── Nearby Hazards ─────────────────────────────────────────────────────────
 function cellCentroid(cellGeom) {
-  const ring = cellGeom.coordinates[0];
+  const ring = cellGeom.coordinates[0].slice(0, -1);  // GeoJSON rings repeat the first vertex
   const lon = ring.reduce((s, p) => s + p[0], 0) / ring.length;
   const lat = ring.reduce((s, p) => s + p[1], 0) / ring.length;
   return [lat, lon];
@@ -790,22 +1086,117 @@ function showInsightHazard(zone) {
   `);
 }
 
+function enterNearbyHazardsMode(lat, lon, radiusM) {
+  state.mode = 'nearby';
+  state.activeLayer = 'nearby';
+  state.nearbyLocation = { lat, lon, radiusM };
+  state.cityBounds = null;
+
+  document.querySelectorAll('#panel-a-dropdown .mode-option')
+    .forEach(o => o.classList.remove('mode-option--active'));
+
+  if (deckInstance) deckInstance.setProps({ layers: [] });
+  deckCanvas.style.opacity = '0';
+  deckCanvas.classList.remove('hex-active');
+
+  layers.choropleth.clearLayers();
+  layers.municipalities.clearLayers();
+  layers.accidents.clearLayers();
+  layers.hazards.clearLayers();
+
+  if (map.hasLayer(layers.choropleth)) map.removeLayer(layers.choropleth);
+  if (map.hasLayer(layers.municipalities)) map.removeLayer(layers.municipalities);
+  if (map.hasLayer(layers.stateBoundary)) map.removeLayer(layers.stateBoundary);
+  if (map.hasLayer(layers.accidents)) map.removeLayer(layers.accidents);
+  if (!map.hasLayer(layers.hazards)) map.addLayer(layers.hazards);
+
+  updateZoomBadge('nearby');
+  syncLegendVisibility();
+}
+
+async function fetchNearbyAccidents(lat, lon, radiusM, signal) {
+  const b = boundsAround(lat, lon, radiusM);
+  const pageSize = 5000;
+  const maxRows = 20000;
+  const matches = [];
+
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    let url = `/accidents?lat_min=${b.south}&lat_max=${b.north}&lon_min=${b.west}&lon_max=${b.east}&limit=${pageSize}&offset=${offset}`;
+    if (state.category)    url += `&category=${state.category}`;
+    if (state.participant) url += `&participant=${state.participant}`;
+    const res = await apiFetch(url, { cache: false, signal });
+    const rows = res.results || [];
+
+    for (const acc of rows) {
+      if (acc.year < 2016 || acc.year > 2024) continue;
+      const distanceM = Math.round(distanceMeters(lat, lon, acc.lat, acc.lon));
+      if (distanceM <= radiusM) matches.push({ ...acc, distance_m: distanceM });
+    }
+
+    if (rows.length < pageSize) break;
+  }
+
+  return matches.sort((a, b) => a.distance_m - b.distance_m || a.year - b.year);
+}
+
+async function renderNearbyAccidents(lat, lon, radiusM, flyToLocation) {
+  setMapLoading(true, 'Loading 500 m accidents');
+  layers.hazards.clearLayers();
+  const signal = activeViewportSignal();
+  const detailZoom = 16;
+  if (flyToLocation) map.flyTo([lat, lon], detailZoom, { duration: 1.2 });
+
+  try {
+    let accidents;
+    try {
+      accidents = await fetchNearbyAccidents(lat, lon, radiusM, signal);
+    } catch (err) {
+      // A newer load superseded this one and will render instead.
+      if (err.name === 'AbortError') return;
+      throw err;
+    }
+
+    L.circle([lat, lon], {
+      radius: radiusM,
+      color: '#2563EB',
+      weight: 2,
+      opacity: 0.75,
+      fillColor: '#3B82F6',
+      fillOpacity: 0.08,
+      interactive: false,
+    }).addTo(layers.hazards);
+
+    L.marker([lat, lon], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div style="width:14px;height:14px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 6px rgba(59,130,246,0.8)"></div>',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      }),
+    }).addTo(layers.hazards);
+
+    if (accidents.length === 0) {
+      showToast('No accidents found within 500 m of your location.');
+    } else {
+      const markerZoom = flyToLocation ? detailZoom : map.getZoom();
+      const useEmojiMarkers = shouldUseEmojiMarkers(accidents.length, markerZoom);
+      for (const acc of accidents) renderSinglePoint(acc, useEmojiMarkers).addTo(layers.hazards);
+    }
+
+    updateDynamicStat(accidents.length.toLocaleString('en-US'), 'within 500 m');
+  } finally {
+    if (!signal.aborted) setMapLoading(false);
+  }
+}
+
 async function loadNearbyHazards() {
   const btn = document.getElementById('btn-nearby-hazards');
   btn.textContent = 'Loading…';
   btn.disabled = true;
-  layers.choropleth.clearLayers();
-  layers.municipalities.clearLayers();
-  layers.stateBoundary.clearLayers();
-  layers.accidents.clearLayers();
-  layers.hazards.clearLayers();
-  map.removeLayer(layers.choropleth);
-  map.removeLayer(layers.stateBoundary);
-  map.removeLayer(layers.accidents);
 
   if (!navigator.geolocation) {
     showToast('Geolocation not supported by your browser.');
-    btn.textContent = '📍 Nearby Hazards';
+    btn.textContent = '📍 500 m Accidents';
     btn.disabled = false;
     return;
   }
@@ -814,47 +1205,28 @@ async function loadNearbyHazards() {
     async (pos) => {
       const lat = pos.coords.latitude;
       const lon = pos.coords.longitude;
-      try {
-        const res = await apiFetch(`/zones/nearby-hazards?lat=${lat}&lon=${lon}`);
-        const zones = res.results || [];
-        map.flyTo([lat, lon], 12, { duration: 1.2 });
-        L.marker([lat, lon], {
-          icon: L.divIcon({
-            className: '',
-            html: '<div style="width:14px;height:14px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 6px rgba(59,130,246,0.8)"></div>',
-            iconSize: [14, 14],
-            iconAnchor: [7, 7],
-          }),
-        }).addTo(layers.hazards);
-        if (zones.length === 0) {
-          showToast('No accident hotspots within 500 m of your location.');
-        } else {
-          for (const zone of zones) {
-            const [clat, clon] = cellCentroid(zone.cell_geom);
-            const marker = L.marker([clat, clon], {
-              icon: L.divIcon({
-                className: '',
-                html: '<div class="hazard-marker"></div>',
-                iconSize: [20, 20],
-                iconAnchor: [10, 10],
-              }),
-            });
-            marker.on('click', () => showInsightHazard(zone));
-            marker.addTo(layers.hazards);
-          }
-        }
-      } catch (err) {
-        const msg = String(err).includes('422')
-          ? 'Your location is outside Germany.'
-          : 'Could not load nearby hazards.';
-        showToast(msg);
+      const radiusM = 500;
+      // Same bounds the API validates for zone lookups.
+      if (lat < 47.27 || lat > 55.06 || lon < 5.87 || lon > 15.04) {
+        showToast('Your location is outside Germany.');
+        btn.textContent = '📍 500 m Accidents';
+        btn.disabled = false;
+        return;
       }
-      btn.textContent = '📍 Nearby Hazards';
+      enterNearbyHazardsMode(lat, lon, radiusM);
+
+      try {
+        await renderNearbyAccidents(lat, lon, radiusM, true);
+      } catch {
+        showToast('Could not load accidents within 500 m.');
+      }
+      btn.textContent = '📍 500 m Accidents';
       btn.disabled = false;
     },
     () => {
       showToast('Location access denied — allow location in your browser.');
-      btn.textContent = '📍 Nearby Hazards';
+      setMapLoading(false);
+      btn.textContent = '📍 500 m Accidents';
       btn.disabled = false;
     }
   );
@@ -865,6 +1237,61 @@ function wireNearbyHazards() {
     .addEventListener('click', loadNearbyHazards);
 }
 
+const HOTSPOT_CLICK_MIN_ZOOM = POINT_EMOJI_MIN_ZOOM;
+
+function loadHotspotHazards() {
+  const btn = document.getElementById('btn-hotspot-hazards');
+
+  if (map.getZoom() < HOTSPOT_CLICK_MIN_ZOOM) {
+    showToast('Zoom in closer to use this.');
+    return;
+  }
+
+  btn.textContent = '📍 Click the map…';
+  btn.disabled = true;
+  map.getContainer().style.cursor = 'crosshair';
+
+  map.once('click', async (e) => {
+    map.getContainer().style.cursor = '';
+    layers.hotspots.clearLayers();
+
+    try {
+      const { lat, lng } = e.latlng;
+      const res = await apiFetch(`/zones/nearest?lat=${lat}&lon=${lng}`);
+      const zones = res.results || [];
+
+      if (zones.length === 0) {
+        showToast('No hotspots found near that point.');
+      } else {
+        for (const zone of zones) {
+          const [zLat, zLon] = cellCentroid(zone.cell_geom);
+          L.marker([zLat, zLon], {
+            icon: L.divIcon({
+              className: '',
+              html: '<div class="hazard-marker"></div>',
+              iconSize: [20, 20],
+              iconAnchor: [10, 10],
+            }),
+          }).on('click', () => showInsightHazard(zone))
+            .addTo(layers.hotspots);
+        }
+      }
+    } catch (err) {
+      const msg = String(err).includes('422')
+        ? 'That point is outside Germany.'
+        : 'Could not load hotspots near that point.';
+      showToast(msg);
+    }
+    btn.textContent = '📍 Nearby Hazards';
+    btn.disabled = false;
+  });
+}
+
+function wireHotspotHazards() {
+  document.getElementById('btn-hotspot-hazards')
+    .addEventListener('click', loadHotspotHazards);
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 const EQ_QUERIES = {
   1: ()              => apiFetch('/aggregates/accidents?aggregate=earliest_year'),
@@ -872,11 +1299,11 @@ const EQ_QUERIES = {
   2: ({year})        => apiFetch(`/aggregates/accidents?state=SN&year=${year}`),
   3: ()              => apiFetch('/aggregates/accidents?state=NW&aggregate=earliest_year'),
   4: ()              => apiFetch('/aggregates/accidents?state=MV&aggregate=earliest_year'),
-  5: ({year, city})  => apiFetch(`/accidents?ags=${city}&year=${year}&participant=pedestrian`),
+  5: ({year, city})  => apiFetch(`/accidents?ags=${city}&year=${year}&participant=pedestrian&limit=1`, { persist: true, maxAgeMs: ONE_DAY_MS }),
   // Multi-source: joins accident data with registered car counts
   6: ({year, state}) => {
     const stateClause = state ? `&state=${state}` : '';
-    return apiFetch(`/aggregates/accident-rate?denominator=cars_pkw&year=${year}&level=district${stateClause}`);
+    return apiFetch(`/aggregates/accident-rate/top?level=district&denominator=cars_pkw&year=${year}&limit=5&min_population=0${stateClause}`);
   },
   // Multi-source: joins accident data with population figures
   7: ({year, severity}) => {
@@ -886,7 +1313,7 @@ const EQ_QUERIES = {
   // Raw fatal count top-5 (single-source, client-sorted)
   8: ({year})        => apiFetch(`/aggregates/accidents?level=district&year=${year}&category=1`),
   // Bicycle accidents in selected city + vehicle
-  9: ({year, city, vehicle}) => apiFetch(`/accidents?ags=${city}&year=${year}&participant=${vehicle}`),
+  9: ({year, city, vehicle}) => apiFetch(`/accidents?ags=${city}&year=${year}&participant=${vehicle}&limit=1`, { persist: true, maxAgeMs: ONE_DAY_MS }),
   // Bonus: zero-accident municipalities — uses PostGIS spatial join on backend
   10: ({year, state}) => apiFetch(`/aggregates/zero-accident-regions?level=municipality&state=${state}&year=${year}`),
 };
@@ -911,12 +1338,14 @@ function formatEqResult(q, res, labels = {}) {
   }
   if (q === 6) {
     const rows6 = (res.results || []).filter(r => r.rate_per_100k != null).slice(0, 5);
-    if (!rows6.length) return row('No data', 'indicator_values empty — load Regionalstatistik CSV');
-    return rows6.map(r => row(r.name, `${r.rate_per_100k} / 100k`)).join('');
+    if (!rows6.length) {
+      return row('No district rows', 'No district-level car denominator data for this state');
+    }
+    return rows6.map((r, i) => row(`${r.rank ?? i + 1}. ${r.name}`, `${r.rate_per_100k} / 100k`)).join('');
   }
   if (q === 7) {
     const rows7 = res.results || [];
-    if (!rows7.length) return row('No data', 'indicator_values empty — load Regionalstatistik CSV');
+    if (!rows7.length) return row('No data', 'No matching fatal-rate rows for this filter');
     const sev = (labels.severity || '').toLowerCase();
     const tag = (sev && sev !== 'all') ? ` (${sev})` : '';
     return rows7.map(r => row(`${r.rank}. ${r.name}${tag}`, `${r.rate_per_100k ?? '—'} / 100k`)).join('');
@@ -951,14 +1380,20 @@ function formatEqResult(q, res, labels = {}) {
 
 
 async function init() {
-  await checkApiStatus();
   wirePanelA();
   wireLeftPanel();
   wireNearbyHazards();
+  wireHotspotHazards();
   wireScrubber();
+  setTimeout(() => map.invalidateSize(), 0);
   document.getElementById('insight-close').addEventListener('click', closeInsightPanel);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInsightPanel(); });
-  await Promise.all([loadChoropleth(), loadStateBoundaries(), updateKPIs(), loadAllYearData()]);
+  checkApiStatus();
+  loadChoropleth();
+  updateKPIs();
+  runWhenIdle(loadStateBoundaries);
+  runWhenIdle(loadAllYearData);
+  setTimeout(() => map.invalidateSize(), 250);
 }
 
 document.addEventListener('DOMContentLoaded', () => init().catch(console.error));
