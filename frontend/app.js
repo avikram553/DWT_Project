@@ -148,7 +148,7 @@ let districtTrendCache = null;
 let municipalityBoundsKey = null;
 let activeViewportController = null;
 const apiCache = new Map();
-const PERSISTENT_CACHE_PREFIX = 'geocrash:v3:';
+const PERSISTENT_CACHE_PREFIX = 'geocrash:v4:';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 // ── API helper ─────────────────────────────────────────────────────────────
@@ -1154,7 +1154,7 @@ async function renderNearbyAccidents(lat, lon, radiusM, flyToLocation) {
 
     updateDynamicStat(accidents.length.toLocaleString('en-US'), 'within 500 m');
   } finally {
-    setMapLoading(false);
+    if (!signal.aborted) setMapLoading(false);
   }
 }
 
@@ -1185,7 +1185,6 @@ async function loadNearbyHazards() {
           : 'Could not load accidents within 500 m.';
         showToast(msg);
       }
-      setMapLoading(false);
       btn.textContent = '📍 500 m Accidents';
       btn.disabled = false;
     },

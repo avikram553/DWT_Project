@@ -34,6 +34,8 @@ def main():
             print("[update] Running regions ETL...")
             result = run_regions_etl(db)
             print(f"[update] Regions done: {result}")
+            from etl.frontend_snapshots import write_region_snapshots
+            write_region_snapshots(db)
 
         # Phase 3: accident data (2016-2024)
         if args.source is None or args.source == "unfallatlas":
