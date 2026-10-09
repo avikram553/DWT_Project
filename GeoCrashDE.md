@@ -10,7 +10,7 @@ Read the README for a run-it/take-it-over orientation. Read **this** file to *de
 
 ## 0. The 30-second pitch (say this first, verbatim if you like)
 
-> Germany publishes accident data, population, vehicle registrations, and administrative boundaries as four separate open datasets — different formats, different schedules, region codes that get reorganized over time. None of it is queryable together out of the box. GeoCrash fuses them into **one PostGIS database**, exposes them through **one FastAPI service**, and renders them on **one interactive map** — reproducible from scratch with two commands. The interesting problems here are all at the seams: joining data across grains to compute a per-capita rate, doing point-in-polygon and nearest-neighbour lookups over 3 million points fast, and rendering 3 million points without melting the browser.
+> Germany publishes accident data, population, vehicle registrations, and administrative boundaries as four separate open datasets — different formats, different schedules, region codes that get reorganized over time. None of it is queryable together out of the box. GeoCrash fuses them into **one PostGIS database**, exposes them through **one FastAPI service**, and renders them on **one interactive map** — reproducible from scratch with two commands. The interesting problems here are all at the seams: joining data across grains to compute a per-capita rate, doing point-in-polygon and nearest-neighbour lookups over 2.1 million points fast, and rendering 2.1 million points without melting the browser.
 
 That paragraph maps 1:1 to the four moving parts and to the three hardest problems. Everything below expands it.
 
@@ -78,7 +78,7 @@ It looks like "many databases" in the diagram. It is not. It is **one PostgreSQL
 
 | Table | One row is | Type | Notable columns |
 | --- | --- | --- | --- |
-| `accidents` | one crash (~3,000,000) | **fact** | `accident_uid` (unique idempotency key), `year`, `category`, six `participant_*` booleans, `geom POINT(4326)` |
+| `accidents` | one crash (~2,100,000) | **fact** | `accident_uid` (unique idempotency key), `year`, `category`, six `participant_*` booleans, `geom POINT(4326)` |
 | `indicator_values` | one (indicator, region, year) measurement | **fact** | composite PK `(indicator_id, region_id, year)` |
 | `regions` | one state/district/municipality | dimension | `ags TEXT` PK (never integer), `level` enum, `parent_ags`, `population_latest`, `geom MULTIPOLYGON(4326)` |
 | `indicators` | one indicator definition (`population`, `cars_pkw`) | dimension | `name`, `unit`, `source_id` |
@@ -112,7 +112,7 @@ This is not "a relational DB that happens to store coordinates." Three operation
 2. **Nearest-neighbour** — which precomputed hotspot is closest to where the user clicked? → the `<->` KNN operator against a GiST index
 3. **Polygon rendering** — turning district boundaries into GeoJSON Leaflet can draw
 
-Store lat/lon as two floats and boundaries as WKT text instead, and all three collapse into application-code loops with **no index support** — a bounding-box query over 3M rows becomes a full table scan on every map pan. PostGIS's `GEOMETRY` types + GiST indexes make all three **index-backed** and interactive.
+Store lat/lon as two floats and boundaries as WKT text instead, and all three collapse into application-code loops with **no index support** — a bounding-box query over 2.1M rows becomes a full table scan on every map pan. PostGIS's `GEOMETRY` types + GiST indexes make all three **index-backed** and interactive.
 
 ### 3.4 Why `accident_zones` stores **two** geometry columns
 
@@ -158,7 +158,7 @@ The full decision table. Memorize the "Because" column.
 | **One DB, normalized by grain** | One DB per source / one giant flat table | A single join across accidents × regions × population is the project's core; flat tables duplicate population into millions of rows; separate DBs need `postgres_fdw` for nothing. |
 | **`indicator_values` long/tidy table** | One column per indicator (wide) | Adding an indicator = new row, **zero schema change**. Wide tables need a migration per indicator. |
 | **Hand-written parameterized SQL** (`text()`) | SQLAlchemy ORM queries | Spatial predicates (`ST_Contains`, `<->`, `ST_Transform`) and dynamic optional filters are clearer and `EXPLAIN ANALYZE`-inspectable as raw SQL than as ORM-generated SQL. |
-| **Precomputed `accident_zones`** | Live per-request aggregation | 3M-row live spatial aggregation is too slow for interactive panning; precompute → KNN lookups become index-driven and instant. |
+| **Precomputed `accident_zones`** | Live per-request aggregation | 2.1M-row live spatial aggregation is too slow for interactive panning; precompute → KNN lookups become index-driven and instant. |
 | **Two stored geometry columns** | Reproject on every read | `ST_Transform` per request wastes CPU; store both once at ETL time. |
 | **`ags TEXT`** | `ags INTEGER` | Leading zeros are meaningful; int casting silently corrupts joins. |
 | **Partial index on `category = 1`** | Full index on `(region_id, year)` for fatals | Fatal is ~2.5% of rows; partial index is far smaller and faster for the fatal-ranking query. |
@@ -217,7 +217,7 @@ curl "http://localhost:8000/zones/nearest?lat=52.52&lon=13.405&limit=5"   # near
 - Q6 is the **cross-dataset join** — accidents (fact) × indicator_values (fact) × regions (dimension). This is *the* question the whole normalized-by-grain design exists to answer. Point at it explicitly.
 - Q7 shows the **partial index**, the **population fallback** (`MAX(year) ≤ requested`), and the **≥50k denormalized filter** all at once.
 - Every JSON response carries a `metadata` block (`sources_used`, `licenses`, `snapshot_date`) — open one and show it: "every answer is self-documenting about where it came from."
-- Zoom the map out→in to show the **three-layer rendering strategy** (choropleth → hex → points) without ever downloading 3M points.
+- Zoom the map out→in to show the **three-layer rendering strategy** (choropleth → hex → points) without ever downloading 2.1M points.
 
 ---
 
@@ -284,14 +284,14 @@ Removes an auth/rate-limit/uptime dependency from a live demo; snapshot date rec
 
 ### Frontend & rendering
 
-**"With 3M points, how do you avoid rendering everything?"**
+**"With 2.1M points, how do you avoid rendering everything?"**
 Zoom-dependent strategy: choropleth counts when zoomed out, deck.gl GPU-aggregated hex bins at medium zoom, individual canvas markers only at street level — each layer fetching only its current viewport bbox, capped by a zoom-dependent point limit. → *README §Part 2.5, §6 demo*
 
 **"Why deck.gl on top of Leaflet, not just Leaflet markers?"**
 Leaflet markers don't scale past a few thousand points and don't express density via extrusion. deck.gl's `HexagonLayer` is GPU-accelerated and aggregates on the fly; Leaflet stays the base map + point/choropleth layer. → *README §Part 2.5*
 
 **"The live hex layer and the hotspot layer look redundant — why both?"**
-The hex layer is live, client-side, re-aggregated every pan — a "density right now" aid. The hotspot layer comes from the precomputed `accident_zones` table built with an explicit, defensible rule (≥5 accidents / 250 m / 3 yr = *Unfallhäufungsstelle*) — the authoritative answer, served via a KNN index instead of a live 3M-row scan. → *§3.4, §6*
+The hex layer is live, client-side, re-aggregated every pan — a "density right now" aid. The hotspot layer comes from the precomputed `accident_zones` table built with an explicit, defensible rule (≥5 accidents / 250 m / 3 yr = *Unfallhäufungsstelle*) — the authoritative answer, served via a KNN index instead of a live 2.1M-row scan. → *§3.4, §6*
 
 ### Reproducibility & operations
 
@@ -322,7 +322,7 @@ The hex layer is live, client-side, re-aggregated every pan — a "density right
 - **`ags` is TEXT** (leading zeros). **`indicator_values` is long/tidy** (add indicators free). **Partial index** on fatals. **Two geometries** (25832 metric for KNN, 4326 for frontend).
 - **Raw parameterized SQL**, injection-safe (participant = closed allowlist).
 - **Idempotent ETL** (`ON CONFLICT` on `UIDENTSTLAE` / SHA-1 surrogate). **Loud failure** at >5% unresolved.
-- **3M points never all rendered** — choropleth → hex → points by zoom, viewport-bounded.
+- **2.1M points never all rendered** — choropleth → hex → points by zoom, viewport-bounded.
 - **Metadata block** on every response = source + license, self-documenting.
 - **Own the rough edges:** zones are a snapshot; participant blank→FALSE; local-only demo by design.
 
@@ -345,14 +345,14 @@ The defense deck (`deck/GeoCrash DE Defense Deck.html`) is 14 slides. For each, 
 | 09 | API Design | "Any SQL-injection risk?" · "Why the metadata/provenance block on every response?" · "Why 5 routers?" · "Where do the Swagger docs come from?" | §7 (injection), §3.1 (metadata), §5 (FastAPI) |
 | 10 | Mandatory Questions | "Walk Q1→Q7." · "Why is Q7 fast (fatal ranking)?" · "How does the population denominator handle missing years?" · "What makes Q6/Q7 *cross-dataset*?" | §3.6 (partial index), §3.7 (denorm + `MAX year ≤`), §6 |
 | 11 | Bonus — Zero-Accident Municipalities | "Why `NOT IN` / anti-join instead of counting?" · "`ST_Within(a.geom, r.geom)` vs `ST_Contains(r.geom, a.geom)` — same thing?" · "Why does this prove the *region catalog* is complete?" | §3.1 (regions = full catalog), §3.3 (point-in-polygon) |
-| 12 | Student Q — Nearby Hazards | "How is *within 500 m* computed?" · "Why EPSG:25832 for the radius/KNN?" · "Isn't scanning 3M points slow?" · "How does geolocation feed the query?" | §3.4 (metric SRID, KNN `<->`), §6 (`/zones/nearest`) |
-| 13 | Challenges | "AGS leading-zero problem?" · "How are Kreisreform boundary changes handled?" · "How do you render 3M points?" | §3.5, §3.1 (`regions_history`), §8, README §Part 2.5 |
+| 12 | Student Q — Nearby Hazards | "How is *within 500 m* computed?" · "Why EPSG:25832 for the radius/KNN?" · "Isn't scanning 2.1M points slow?" · "How does geolocation feed the query?" | §3.4 (metric SRID, KNN `<->`), §6 (`/zones/nearest`) |
+| 13 | Challenges | "AGS leading-zero problem?" · "How are Kreisreform boundary changes handled?" · "How do you render 2.1M points?" | §3.5, §3.1 (`regions_history`), §8, README §Part 2.5 |
 | 14 | Live Demo | "Show it." · "What if the network drops mid-demo?" | §6 (demo script), §8 (local-only, backup video) |
 
 **Two slide-specific answers not already in §7:**
 
 - **Slide 11, `ST_Within` vs `ST_Contains`:** they're inverses of the same test — `ST_Within(a.geom, r.geom)` ≡ `ST_Contains(r.geom, a.geom)` (is the accident point inside the region polygon). The bonus query uses `ST_Within` because the accident is the subject being tested. Same GiST-indexed spatial predicate either way. The *point* of the slide is the **anti-join**: the answer is the *absence* of rows, so it only works because `regions` is a complete catalog independent of `accidents`.
-- **Slide 12, "why not just scan 3M points for within-500 m?":** a raw radius scan is a full table scan. Instead it's a KNN `<->` lookup on a GiST index in EPSG:25832, so "nearest hotspots" and "count within 500 m" are index-driven and return in metres, not a sequential 3M-row distance computation.
+- **Slide 12, "why not just scan 2.1M points for within-500 m?":** a raw radius scan is a full table scan. Instead it's a KNN `<->` lookup on a GiST index in EPSG:25832, so "nearest hotspots" and "count within 500 m" are index-driven and return in metres, not a sequential 2.1M-row distance computation.
 
 ---
 

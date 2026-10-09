@@ -13,7 +13,7 @@ Built as the term project for TU Chemnitz's *Datenbanken und Web-Techniken* cour
 - Fuses accident records, administrative boundaries, population, and vehicle-registration data into one normalized, queryable schema.
 - Classifies accident hotspots from raw points using Germany's official *Unfallhäufungsstelle* definition (≥5 accidents in 250m, 3 years), queryable by nearest-neighbour.
 - Serves everything through a documented REST API with full provenance (source, license, snapshot date) on every response.
-- Renders accidents as a choropleth, a GPU-aggregated hex-bin density layer, or individual points — switching automatically with map zoom, so the browser never tries to draw 3 million markers at once.
+- Renders accidents as a choropleth, a GPU-aggregated hex-bin density layer, or individual points — switching automatically with map zoom, so the browser never tries to draw 2.1 million markers at once.
 - Rebuilds itself from scratch with a single ETL command — nothing hand-imported.
 
 ## Tech stack
@@ -90,7 +90,7 @@ One database, 9 tables, split by **grain** (what one row represents) rather than
 
 | Table | One row is |
 |---|---|
-| `accidents` | one crash (~3M rows) |
+| `accidents` | one crash (~2.1M rows) |
 | `regions` | one state/district/municipality |
 | `regions_history` | one retired→current AGS code mapping |
 | `indicators` / `indicator_values` | one indicator definition / one (indicator, region, year) measurement |

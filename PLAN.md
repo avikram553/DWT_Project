@@ -27,7 +27,7 @@ Build a reproducible end-to-end data platform that:
 | Database | PostgreSQL 16 + PostGIS 3.4 (image: `postgis/postgis:16-3.4`) | Native KNN (`<->`), polygon storage, mature. **Do NOT use bare `postgres:16` — it does not include PostGIS.** |
 | Backend | Python 3.11 + FastAPI | Best ETL ergonomics, free OpenAPI docs |
 | DB layer | SQLAlchemy 2 + GeoAlchemy2 | Type hints + raw SQL escape hatch |
-| ETL | pandas + httpx + zipfile | Standard, fast for 3M rows |
+| ETL | pandas + httpx + zipfile | Standard, fast for 2.1M rows |
 | Frontend | Vanilla HTML + Leaflet.js + Chart.js | No build step, examiner-readable |
 | Container | Docker Compose | One-command setup → reproducibility (25%) |
 | Migrations | Plain SQL files in `db/init/` | Simpler than Alembic for this scope |
@@ -39,7 +39,7 @@ Build a reproducible end-to-end data platform that:
 
 | # | Source | Format | Purpose | License |
 |---|---|---|---|---|
-| 1 | **Unfallatlas** | CSV (latin-1, ;) | Accident events (~3M rows, 2016–2024) | dl-de/by-2-0 |
+| 1 | **Unfallatlas** | CSV (latin-1, ;) | Accident events (~2.1M rows, 2016–2024) | dl-de/by-2-0 |
 | 2 | **Regionalatlas** | GeoJSON | Region polygons (states + districts) | dl-de/by-2-0 |
 | 3 | **Regionalstatistik / GENESIS** | CSV / JSON API | Population + registered cars (~300k values) | dl-de/by-2-0 |
 | 4 | **GV-ISys / AGS** | CSV / XLSX | Region reference codes (8-digit AGS) | dl-de/by-2-0 |
@@ -69,7 +69,7 @@ Build a reproducible end-to-end data platform that:
 | # | Table | Rows | Purpose |
 |---|---|---|---|
 | 1 | `regions` | ~12,000 | Admin region catalog with polygons (canonical 2024 AGS) |
-| 2 | `accidents` | ~3,000,000 | Main fact table |
+| 2 | `accidents` | ~2,100,000 | Main fact table |
 | 3 | `indicators` | ~5–10 | Indicator catalog |
 | 4 | `indicator_values` | ~300,000 | Population & vehicles per region/year |
 | 5 | `accident_zones` | ~100,000 | Computed hotspot/safe classifications |
@@ -151,7 +151,7 @@ Every response carries `metadata.license`, `metadata.snapshot_date`, `metadata.s
 | **0. Skeleton** | Repo + Docker compose + stub API | `curl /healthz` returns ok | — |
 | **1. Schema** | All 9 tables + seeds | `docker compose up` produces schemed empty DB | 20% (schema) |
 | **2. Regions ETL** | ~12k regions loaded | `GET /regions?level=state` returns 16 | 25% (integration) |
-| **3. Accidents ETL** | ~3M rows loaded, idempotent | Mandatory Q1–Q5 answerable | 25% (integration) |
+| **3. Accidents ETL** | ~2.1M rows loaded, idempotent | Mandatory Q1–Q5 answerable | 25% (integration) |
 | **4. Indicators ETL** | ~300k values loaded | `GET /regions/{ags}/indicators` works | 25% (integration) |
 | **5. Aggregation API** | Filters, ranks, rates | All 7 mandatory Qs pass | 20% (API correctness) |
 | **6. Hotspots feature** | Zones precomputed + KNN | `/zones/around?lat=&lon=` <50ms | 20% + bonus |
@@ -346,7 +346,7 @@ Failures surface via `GET /healthz/data-quality` and block submission until reso
 | CSV encoding corrupts umlauts | Medium | High | Force `latin-1`; assert no replacement chars |
 | GENESIS API auth blocks ETL | Medium | Medium | Use Regionalstatistik CSV path |
 | Submission deadline slip | Medium | Critical | Phase 11 target = 23.06; 2-day buffer |
-| 3M-row import too slow | Low | Medium | Use psycopg `COPY`, not row-by-row |
+| 2.1M-row import too slow | Low | Medium | Use psycopg `COPY`, not row-by-row |
 | Live demo network failure | Medium | High | All data local; pre-recorded backup video |
 | 2018 size dip hides bugs | Medium | Medium | Per-state-per-year row count assertions |
 | Frontend bugs eat time | High | Medium | Vanilla JS only, no build step |
@@ -418,7 +418,7 @@ Drafts of each section are written *during* the corresponding phase, not all at 
 All design decisions are closed:
 
 - [x] Tech stack confirmed: Python + FastAPI + Postgres+PostGIS + Vanilla JS
-- [x] Year scope confirmed: **2016–2024 full** (~3M rows, maximalist)
+- [x] Year scope confirmed: **2016–2024 full** (~2.1M rows, maximalist)
 - [x] Indicator path confirmed: **Regionalstatistik CSV** (no auth, demo-reliable)
 - [x] Solo submission confirmed
 
